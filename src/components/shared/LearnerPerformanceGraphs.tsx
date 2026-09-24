@@ -71,12 +71,18 @@ function LineChart({ series, requirement }: { series: PerformancePoint[]; requir
   const requirementValues = typeof requirement === 'number' && Number.isFinite(requirement) ? [requirement] : [];
   const max = Math.max(100, ...dataValues, ...requirementValues, 0);
   const x = (label: string) => left + (gradeAxis.indexOf(Number(label) as (typeof gradeAxis)[number]) / 5) * (width - left - right);
-  const y = (value: number) => height - bottom - ((value - 0) / (max || 1)) * (height - top - bottom);
+  const minimumVisibleValue = 1;
+  const y = (value: number) => {
+    const safeValue = Number.isFinite(value) ? value : 0;
+    const plotValue = safeValue > 0 && safeValue < minimumVisibleValue ? minimumVisibleValue : safeValue;
+    return height - bottom - ((plotValue - 0) / (max || 1)) * (height - top - bottom);
+  };
   const draw = (color: string, key: 'value' | 'target') => series.slice(1).map((point, index) => {
     const previous = series[index];
     const previousGrade = Number(previous.label);
     const currentGrade = Number(point.label);
-    if (currentGrade - previousGrade > 1) return null;
+    const shouldBreakPhase = previousGrade <= 9 && currentGrade >= 10;
+    if (currentGrade - previousGrade > 1 || shouldBreakPhase) return null;
     const dx = x(point.label) - x(previous.label);
     const dy = y(point[key]) - y(previous[key]);
     const length = Math.hypot(dx, dy) || 1;

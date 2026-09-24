@@ -555,7 +555,7 @@ export function NationalCatalogContent() {
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
-      <SectionCard title="Master Catalog" subtitle="Organize the national curriculum catalogue by phase and track it by academic structure.">
+      <SectionCard title="Master Catalog" subtitle="Organize the national curriculum catalogue by phase and track it by academic structure." defaultExpanded={false}>
         <View style={styles.buttonStack}>
           {[
             { key: 'seniorSecondary', label: 'Senior secondary' },

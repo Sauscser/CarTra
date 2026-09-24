@@ -1746,8 +1746,12 @@ export default function TeacherHomeScreen() {
     const axisGrades = [7, 8, 9, 10, 11, 12] as const;
     const majorStep = 10;
     const minorStep = 1;
-    const yMajorTicks = Array.from({ length: Math.floor(maxY / majorStep) + 1 }, (_, index) => index * majorStep);
-    const yMinorTicks = Array.from({ length: maxY + 1 }, (_, index) => index * minorStep);
+    const dynamicValues = series.flatMap((point) => [Number(point.value || 0), Number(point.target || 0)])
+      .filter((value) => Number.isFinite(value));
+    const requirementValues = typeof nationalRequirement === 'number' && Number.isFinite(nationalRequirement) ? [nationalRequirement] : [];
+    const resolvedMaxY = Math.max(100, ...dynamicValues, ...requirementValues, 0);
+    const yMajorTicks = Array.from({ length: Math.floor(resolvedMaxY / majorStep) + 1 }, (_, index) => index * majorStep);
+    const yMinorTicks = Array.from({ length: resolvedMaxY + 1 }, (_, index) => index * minorStep);
 
     type ChartPoint = {
       label: string;
@@ -1764,9 +1768,11 @@ export default function TeacherHomeScreen() {
 
     const axisLineY = chartHeight - paddingBottom;
     const valueToY = (value: number) => {
-      const safeValue = Math.max(0, Math.min(maxY, Number.isFinite(value) ? value : 0));
+      const safeValue = Number.isFinite(value) ? value : 0;
+      const plotValue = safeValue > 0 && safeValue < 1 ? 1 : safeValue;
+      const clampedValue = Math.max(0, Math.min(resolvedMaxY, plotValue));
       const usableHeight = chartHeight - paddingTop - paddingBottom;
-      return axisLineY - (safeValue / Math.max(maxY, 1)) * usableHeight;
+      return axisLineY - (clampedValue / Math.max(resolvedMaxY, 1)) * usableHeight;
     };
 
     const points: ChartPoint[] = series

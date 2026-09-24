@@ -8,12 +8,12 @@ import SectionCard from '../../components/shared/SectionCard';
 import ViewPerformance from '../../components/teacher/ViewPerformance';
 import LearnerComments from '../../components/shared/LearnerComments';
 import LearnerPerformanceGraphs from '../../components/shared/LearnerPerformanceGraphs';
-import { getLearnerProfile, listLearnerDocumentResources, listLearnerProfiles, listOrgHierarchies } from '../../graphql/queries';
+import { getLearnerProfile, listGrade12ResultSummaries, listLearnerDocumentResources, listLearnerProfiles, listOrgHierarchies, listTertiaryCourses, listTertiaryInstitutionProfiles, listUsers } from '../../graphql/queries';
 import calculateHistoricalClusterSeries, { calculateDeviationPercentage } from '../../utils/cluster';
 import { NationalOfficerSetupContent } from './NationalOfficerSetupScreen';
 import { NationalCatalogContent, NationalRegionsContent } from './NationalHomeScreen';
 
-type NationalScreenKey = 'home' | 'setup' | 'regions' | 'catalog';
+type NationalScreenKey = 'home' | 'setup' | 'regions' | 'catalog' | 'performance';
 
 type NationalEntity = {
   id: string;
@@ -43,7 +43,117 @@ const NATIONAL_ACTIONS: Array<{ key: Exclude<NationalScreenKey, 'home'>; title: 
     title: 'Master Catalog',
     description: 'Add subjects, tracks, pathways, competencies, and core values.',
   },
+  {
+    key: 'performance',
+    title: 'Performance Summary',
+    description: 'National Grade 12 outcome trends, tertiary coverage, and career targets.',
+  },
 ];
+
+function NationalPerformanceSummaryContent({
+  nationalCareerSummary,
+  tertiaryInstitutions,
+  tertiaryCourses,
+}: {
+  nationalCareerSummary: {
+    totalSummaries: number;
+    metTarget: number;
+    belowTarget: number;
+    eligible: number;
+    pending: number;
+    institutionCount: number;
+    courseCount: number;
+    topCareers: Array<{ name: string; value: number }>;
+  };
+  tertiaryInstitutions: Array<{ id: string; institutionName: string; nationCode?: string | null; regionCode?: string | null; countyCode?: string | null; userId?: string | null; adminEmail?: string | null }>;
+  tertiaryCourses: Array<{ id: string; institutionId?: string | null; institutionName?: string | null; courseCode?: string | null; courseName: string; minimumClusterScore?: number | null; status?: string | null }>;
+}) {
+  const [expandedInstitutionIds, setExpandedInstitutionIds] = useState<Record<string, boolean>>({});
+  const [showInstitutionList, setShowInstitutionList] = useState(true);
+
+  const toggleInstitution = (institutionId: string) => {
+    setExpandedInstitutionIds((current) => ({
+      ...current,
+      [institutionId]: !current[institutionId],
+    }));
+  };
+
+  const toggleInstitutionPanel = () => setShowInstitutionList((current) => !current);
+
+  return (
+    <SectionCard title="Performance Summary" subtitle="Final Grade 12 outcomes captured across this national office." defaultExpanded={false}>
+      <View style={styles.summaryGrid}>
+        <View style={styles.summaryTile}><Text style={styles.summaryLabel}>Total summaries</Text><Text style={styles.summaryValue}>{nationalCareerSummary.totalSummaries}</Text></View>
+        <View style={styles.summaryTile}><Text style={styles.summaryLabel}>Met target</Text><Text style={styles.summaryValue}>{nationalCareerSummary.metTarget}</Text></View>
+        <View style={styles.summaryTile}><Text style={styles.summaryLabel}>Below target</Text><Text style={styles.summaryValue}>{nationalCareerSummary.belowTarget}</Text></View>
+        <View style={styles.summaryTile}><Text style={styles.summaryLabel}>Eligible</Text><Text style={styles.summaryValue}>{nationalCareerSummary.eligible}</Text></View>
+        <View style={styles.summaryTile}><Text style={styles.summaryLabel}>Pending</Text><Text style={styles.summaryValue}>{nationalCareerSummary.pending}</Text></View>
+        <View style={styles.summaryTile}><Text style={styles.summaryLabel}>Institutions</Text><Text style={styles.summaryValue}>{tertiaryInstitutions.length || nationalCareerSummary.institutionCount}</Text></View>
+        <View style={styles.summaryTile}><Text style={styles.summaryLabel}>Courses</Text><Text style={styles.summaryValue}>{tertiaryCourses.length || nationalCareerSummary.courseCount}</Text></View>
+      </View>
+
+      <View style={styles.catalogSection}>
+        <TouchableOpacity onPress={toggleInstitutionPanel} activeOpacity={0.8} style={styles.sectionHeaderButton}>
+          <Text style={styles.selectionTitle}>Institutions in this nation</Text>
+          <Text style={styles.expandToggleText}>{showInstitutionList ? '−' : '+'}</Text>
+        </TouchableOpacity>
+
+        {showInstitutionList ? (
+          tertiaryInstitutions.length ? (
+            tertiaryInstitutions.map((institution) => {
+              const institutionCourses = tertiaryCourses.filter((course) => String(course.institutionId || '') === String(institution.id || ''));
+              const isExpanded = !!expandedInstitutionIds[institution.id];
+
+              return (
+                <View key={institution.id} style={styles.catalogRow}>
+                  <TouchableOpacity style={styles.institutionToggleRow} onPress={() => toggleInstitution(institution.id)} activeOpacity={0.8}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.catalogTitle}>{institution.institutionName}</Text>
+                      <Text style={styles.catalogMeta}>Admin email: {institution.adminEmail || 'Unknown email'}</Text>
+                      <Text style={styles.catalogMeta}>Region: {institution.regionCode || 'N/A'} • County: {institution.countyCode || 'N/A'}</Text>
+                    </View>
+                    <Text style={styles.expandToggleText}>{isExpanded ? '−' : '+'}</Text>
+                  </TouchableOpacity>
+
+                  {isExpanded ? (
+                    <View style={styles.courseListContainer}>
+                      {institutionCourses.length ? (
+                        institutionCourses.map((course) => (
+                          <View key={course.id} style={styles.courseRow}>
+                            <Text style={styles.catalogTitle}>{course.courseName}</Text>
+                            <Text style={styles.catalogMeta}>Code: {course.courseCode || 'N/A'} • Minimum cluster: {course.minimumClusterScore ?? 'Not set'}</Text>
+                          </View>
+                        ))
+                      ) : (
+                        <Text style={styles.empty}>No courses have been added for this institution yet.</Text>
+                      )}
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })
+          ) : (
+            <Text style={styles.empty}>No tertiary institutions have been created for this nation yet.</Text>
+          )
+        ) : null}
+      </View>
+
+      {nationalCareerSummary.topCareers.length ? (
+        <View style={styles.careerList}>
+          <Text style={styles.selectionTitle}>Top career targets</Text>
+          {nationalCareerSummary.topCareers.map((item) => (
+            <View key={item.name} style={styles.careerRow}>
+              <Text style={styles.careerName}>{item.name}</Text>
+              <Text style={styles.careerCount}>{item.value}</Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.empty}>No final Grade 12 career results have been captured for this nation yet.</Text>
+      )}
+    </SectionCard>
+  );
+}
 
 export default function NationalOfficeScreen() {
   const [activeScreen, setActiveScreen] = useState<NationalScreenKey>('home');
@@ -54,6 +164,18 @@ export default function NationalOfficeScreen() {
   const [nationalSubCounties, setNationalSubCounties] = useState<NationalSubCountyEntity[]>([]);
   const [nationalSchools, setNationalSchools] = useState<NationalSchoolEntity[]>([]);
   const [nationalLearners, setNationalLearners] = useState<Array<{ id: string; fullName: string; gradeLevel?: string | null; classCode?: string | null; assessmentNumber?: string | null; regionCode?: string | null; countyCode?: string | null; subCountyCode?: string | null; schoolCode?: string | null }>>([]);
+  const [nationalCareerSummary, setNationalCareerSummary] = useState({
+    totalSummaries: 0,
+    metTarget: 0,
+    belowTarget: 0,
+    eligible: 0,
+    pending: 0,
+    institutionCount: 0,
+    courseCount: 0,
+    topCareers: Array<{ name: string; value: number }>(),
+  });
+  const [tertiaryInstitutions, setTertiaryInstitutions] = useState<Array<{ id: string; institutionName: string; nationCode?: string | null; regionCode?: string | null; countyCode?: string | null; userId?: string | null; adminEmail?: string | null }>>([]);
+  const [tertiaryCourses, setTertiaryCourses] = useState<Array<{ id: string; institutionId?: string | null; institutionName?: string | null; courseCode?: string | null; courseName: string; minimumClusterScore?: number | null; status?: string | null }>>([]);
   const [selectedRegionCode, setSelectedRegionCode] = useState<string | null>(null);
   const [selectedCountyCode, setSelectedCountyCode] = useState<string | null>(null);
   const [selectedSubCountyCode, setSelectedSubCountyCode] = useState<string | null>(null);
@@ -85,6 +207,8 @@ export default function NationalOfficeScreen() {
   useEffect(() => {
     if (nation?.code) {
       void loadNationalLearners();
+      void loadNationalCareerSummary();
+      void loadTertiaryCatalog();
     }
   }, [nation?.code]);
 
@@ -293,6 +417,150 @@ export default function NationalOfficeScreen() {
     Alert.alert('Unable to open file', 'This file could not be opened right now.');
   };
 
+  const loadNationalCareerSummary = async () => {
+    if (!nation?.code) {
+      setNationalCareerSummary({
+        totalSummaries: 0,
+        metTarget: 0,
+        belowTarget: 0,
+        eligible: 0,
+        pending: 0,
+        institutionCount: 0,
+        courseCount: 0,
+        topCareers: [],
+      });
+      return;
+    }
+
+    try {
+      const result = await client.graphql({
+        query: listGrade12ResultSummaries,
+        variables: { limit: 500 },
+      } as any);
+
+      const items = ((result as any).data?.listGrade12ResultSummaries?.items || []) as Array<any>;
+      const summaries = items.filter((item: any) => {
+        const nationCode = String(item?.nationCode || '').trim();
+        return Boolean(item?.learnerId) && nationCode.length > 0 && nationCode.toLowerCase() === String(nation.code).trim().toLowerCase();
+      });
+
+      const metTarget = summaries.filter((item: any) => item?.wasTargetCareerReached === true || item?.resultStatus === 'met_target').length;
+      const belowTarget = summaries.filter((item: any) => item?.wasTargetCareerReached === false || item?.resultStatus === 'below_target').length;
+      const eligible = summaries.filter((item: any) => item?.placementStatus === 'eligible').length;
+      const pending = summaries.filter((item: any) => item?.placementStatus === 'pending').length;
+
+      const careerMap = new Map<string, number>();
+      summaries.forEach((item: any) => {
+        const name = String(item?.targetCareerName || item?.courseName || item?.institutionName || 'Unassigned').trim();
+        if (!name) return;
+        careerMap.set(name, (careerMap.get(name) || 0) + 1);
+      });
+
+      const topCareers = Array.from(careerMap.entries())
+        .map(([name, value]) => ({ name, value }))
+        .sort((left, right) => right.value - left.value)
+        .slice(0, 5);
+
+      setNationalCareerSummary({
+        totalSummaries: summaries.length,
+        metTarget,
+        belowTarget,
+        eligible,
+        pending,
+        institutionCount: new Set(summaries.map((item: any) => String(item?.institutionName || '').trim()).filter(Boolean)).size,
+        courseCount: new Set(summaries.map((item: any) => String(item?.courseName || '').trim()).filter(Boolean)).size,
+        topCareers,
+      });
+    } catch (error) {
+      console.warn('loadNationalCareerSummary failed', error);
+      setNationalCareerSummary({
+        totalSummaries: 0,
+        metTarget: 0,
+        belowTarget: 0,
+        eligible: 0,
+        pending: 0,
+        institutionCount: 0,
+        courseCount: 0,
+        topCareers: [],
+      });
+    }
+  };
+
+  const loadTertiaryCatalog = async () => {
+    if (!nation?.code) {
+      setTertiaryInstitutions([]);
+      setTertiaryCourses([]);
+      return;
+    }
+
+    try {
+      const [institutionResult, courseResult, userResult] = await Promise.all([
+        client.graphql({
+          query: listTertiaryInstitutionProfiles,
+          variables: { limit: 500 },
+        } as any),
+        client.graphql({
+          query: listTertiaryCourses,
+          variables: { limit: 500 },
+        } as any),
+        client.graphql({
+          query: listUsers,
+          variables: { limit: 500 },
+        } as any),
+      ]);
+
+      const institutions = ((institutionResult as any).data?.listTertiaryInstitutionProfiles?.items || []) as Array<any>;
+      const courses = ((courseResult as any).data?.listTertiaryCourses?.items || []) as Array<any>;
+      const users = ((userResult as any).data?.listUsers?.items || []) as Array<any>;
+
+      const emailMap = users.reduce((map: Record<string, string>, user: any) => {
+        if (user?.id) {
+          map[user.id] = user.email || user.username || 'Unknown email';
+        }
+        return map;
+      }, {} as Record<string, string>);
+
+      const nationInstitutions = institutions
+        .filter((item: any) => String(item?.nationCode || '').trim().toLowerCase() === String(nation.code).trim().toLowerCase())
+        .map((item: any) => ({
+          id: item.id,
+          institutionName: item.institutionName,
+          nationCode: item.nationCode,
+          regionCode: item.regionCode,
+          countyCode: item.countyCode,
+          userId: item.userId,
+          adminEmail: emailMap[String(item.userId || '')] || emailMap[String(item?.userId || '').toLowerCase()] || 'Unknown email',
+        }));
+
+      const institutionMap = new Map<string, string>();
+      nationInstitutions.forEach((institution: any) => {
+        institutionMap.set(institution.id, institution.institutionName || 'Unknown institution');
+      });
+
+      const nationCourses = courses
+        .filter((course: any) => {
+          const institutionName = institutionMap.get(String(course?.institutionId || ''));
+          return Boolean(course?.courseName) && (course?.institutionId ? institutionMap.has(String(course.institutionId)) : true);
+        })
+        .map((course: any) => ({
+          id: course.id,
+          institutionId: course.institutionId,
+          institutionName: institutionMap.get(String(course?.institutionId || '')) || 'Unknown institution',
+          courseCode: course.courseCode,
+          courseName: course.courseName,
+          minimumClusterScore: typeof course.minimumClusterScore === 'number' ? course.minimumClusterScore : Number(course.minimumClusterScore) || null,
+          status: course.status,
+        }));
+
+      setTertiaryInstitutions(nationInstitutions);
+      setTertiaryCourses(nationCourses);
+    } catch (error) {
+      console.warn('loadTertiaryCatalog failed', error);
+      setTertiaryInstitutions([]);
+      setTertiaryCourses([]);
+    }
+  };
+
   const loadNationalLearners = async () => {
     if (!nation?.code) return;
     try {
@@ -476,16 +744,25 @@ export default function NationalOfficeScreen() {
         return <NationalRegionsContent />;
       case 'catalog':
         return <NationalCatalogContent />;
+      case 'performance':
+        return (
+          <NationalPerformanceSummaryContent
+            nationalCareerSummary={nationalCareerSummary}
+            tertiaryInstitutions={tertiaryInstitutions}
+            tertiaryCourses={tertiaryCourses}
+          />
+        );
       default:
         return (
           <>
             <SectionCard
               title="National Office"
               subtitle="Choose a national task to begin."
+              defaultExpanded={true}
             >
             </SectionCard>
 
-            <SectionCard title="Regions, schools, and affected learners" subtitle="Select a region, county, sub-county, school, and grade to view affected learners.">
+            <SectionCard title="Regions, schools, and affected learners" subtitle="Select a region, county, sub-county, school, and grade to view affected learners." defaultExpanded={false}>
               {!nationalRegions.length ? <Text style={styles.empty}>No regions are available in this nation.</Text> : nationalRegions.map((regionItem) => (
                 <TouchableOpacity key={regionItem.id} style={[styles.row, selectedRegionCode === regionItem.code && styles.rowSelected]} onPress={() => setSelectedRegionCode(regionItem.code)} accessibilityState={{ selected: selectedRegionCode === regionItem.code }}>
                   <Text style={styles.rowCode}>{regionItem.code}</Text>
@@ -707,6 +984,111 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 8,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 8,
+  },
+  summaryTile: {
+    width: '31%',
+    minWidth: 110,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    borderRadius: 10,
+    padding: 12,
+  },
+  summaryLabel: {
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  summaryValue: {
+    color: '#0f172a',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  catalogSection: {
+    marginTop: 16,
+    gap: 8,
+  },
+  sectionHeaderButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingRight: 4,
+  },
+  expandToggleText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1d4ed8',
+    lineHeight: 24,
+  },
+  catalogRow: {
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    padding: 10,
+  },
+  institutionToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  courseListContainer: {
+    marginTop: 10,
+    gap: 8,
+  },
+  courseRow: {
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    padding: 8,
+  },
+  catalogTitle: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '700',
+    marginBottom: 3,
+  },
+  catalogMeta: {
+    fontSize: 12,
+    color: '#475569',
+    marginBottom: 2,
+  },
+  careerList: {
+    marginTop: 12,
+    gap: 6,
+  },
+  careerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  careerName: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 8,
+  },
+  careerCount: {
+    color: '#1d4ed8',
+    fontSize: 13,
+    fontWeight: '800',
   },
   schoolButton: {
     borderWidth: 1,
