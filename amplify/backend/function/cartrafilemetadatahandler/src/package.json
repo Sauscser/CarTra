@@ -1,0 +1,10 @@
+{
+  "name": "cartrafilemetadatahandler",
+  "version": "1.0.0",
+  "description": "Handle S3 file metadata for evidence and learner materials",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.92"
+  }
+}

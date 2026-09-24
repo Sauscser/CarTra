@@ -1,0 +1,237 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Shared S3 public folder access for authenticated Cognito group roles",
+  "Parameters": {
+    "env": {
+      "Type": "String"
+    },
+    "storages34c5bf2d4BucketName": {
+      "Type": "String"
+    },
+    "authuserPoolGroupsappOwnerGroupRole": {
+      "Type": "String"
+    },
+    "authuserPoolGroupsnationalOfficerGroupRole": {
+      "Type": "String"
+    },
+    "authuserPoolGroupsregionalOfficerGroupRole": {
+      "Type": "String"
+    },
+    "authuserPoolGroupscountyOfficerGroupRole": {
+      "Type": "String"
+    },
+    "authuserPoolGroupssubCountyOfficerGroupRole": {
+      "Type": "String"
+    },
+    "authuserPoolGroupsprincipalGroupRole": {
+      "Type": "String"
+    },
+    "authuserPoolGroupsteacherGroupRole": {
+      "Type": "String"
+    },
+    "authuserPoolGroupstertiaryOfficerGroupRole": {
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "SharedS3PortfolioAccessPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": {
+          "Fn::Join": [
+            "",
+            [
+              "shared-s3-portfolio-access-",
+              {
+                "Ref": "env"
+              }
+            ]
+          ]
+        },
+        "Roles": [
+          {
+            "Fn::Select": [
+              1,
+              {
+                "Fn::Split": [
+                  "/",
+                  {
+                    "Ref": "authuserPoolGroupsappOwnerGroupRole"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Fn::Select": [
+              1,
+              {
+                "Fn::Split": [
+                  "/",
+                  {
+                    "Ref": "authuserPoolGroupsnationalOfficerGroupRole"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Fn::Select": [
+              1,
+              {
+                "Fn::Split": [
+                  "/",
+                  {
+                    "Ref": "authuserPoolGroupsregionalOfficerGroupRole"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Fn::Select": [
+              1,
+              {
+                "Fn::Split": [
+                  "/",
+                  {
+                    "Ref": "authuserPoolGroupscountyOfficerGroupRole"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Fn::Select": [
+              1,
+              {
+                "Fn::Split": [
+                  "/",
+                  {
+                    "Ref": "authuserPoolGroupssubCountyOfficerGroupRole"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Fn::Select": [
+              1,
+              {
+                "Fn::Split": [
+                  "/",
+                  {
+                    "Ref": "authuserPoolGroupsprincipalGroupRole"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Fn::Select": [
+              1,
+              {
+                "Fn::Split": [
+                  "/",
+                  {
+                    "Ref": "authuserPoolGroupsteacherGroupRole"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Fn::Select": [
+              1,
+              {
+                "Fn::Split": [
+                  "/",
+                  {
+                    "Ref": "authuserPoolGroupstertiaryOfficerGroupRole"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowSharedStorageObjectCrud",
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject"
+              ],
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:aws:s3:::",
+                      {
+                        "Ref": "storages34c5bf2d4BucketName"
+                      },
+                      "/public/*"
+                    ]
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:aws:s3:::",
+                      {
+                        "Ref": "storages34c5bf2d4BucketName"
+                      },
+                      "/protected/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Sid": "AllowSharedStorageList",
+              "Effect": "Allow",
+              "Action": [
+                "s3:ListBucket"
+              ],
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:aws:s3:::",
+                      {
+                        "Ref": "storages34c5bf2d4BucketName"
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "Condition": {
+                "StringLike": {
+                  "s3:prefix": [
+                    "public",
+                    "public/*",
+                    "protected",
+                    "protected/*"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "SharedS3PortfolioAccessPolicyName": {
+      "Value": {
+        "Ref": "SharedS3PortfolioAccessPolicy"
+      }
+    }
+  }
+}

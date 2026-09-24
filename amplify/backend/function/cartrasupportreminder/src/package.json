@@ -1,0 +1,10 @@
+{
+  "name": "cartrasupportreminder",
+  "version": "1.0.0",
+  "description": "Check for overdue support plans and reminder state",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.92"
+  }
+}

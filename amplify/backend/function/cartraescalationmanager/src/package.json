@@ -1,0 +1,10 @@
+{
+  "name": "cartraescalationmanager",
+  "version": "1.0.0",
+  "description": "Evaluate learner escalation state and assign review scope",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.92"
+  }
+}

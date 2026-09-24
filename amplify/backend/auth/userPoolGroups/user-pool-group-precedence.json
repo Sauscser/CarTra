@@ -1,0 +1,42 @@
+[
+  {
+    "groupName": "appOwner",
+    "precedence": 1
+  },
+  {
+    "groupName": "nationalOfficer",
+    "precedence": 2
+  },
+  {
+    "groupName": "regionalOfficer",
+    "precedence": 3
+  },
+  {
+    "groupName": "countyOfficer",
+    "precedence": 4
+  },
+  {
+    "groupName": "subCountyOfficer",
+    "precedence": 5
+  },
+  {
+    "groupName": "principal",
+    "precedence": 6
+  },
+  {
+    "groupName": "teacher",
+    "precedence": 7
+  },
+  {
+    "groupName": "tertiaryOfficer",
+    "precedence": 8
+  },
+  {
+    "groupName": "Admin1",
+    "precedence": 9
+  },
+  {
+    "groupName": "Admin2",
+    "precedence": 10
+  }
+]

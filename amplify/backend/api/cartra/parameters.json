@@ -1,0 +1,11 @@
+{
+  "AppSyncApiName": "cartra",
+  "DynamoDBBillingMode": "PAY_PER_REQUEST",
+  "DynamoDBEnableServerSideEncryption": false,
+  "AuthCognitoUserPoolId": {
+    "Fn::GetAtt": [
+      "authcartra681f0691",
+      "Outputs.UserPoolId"
+    ]
+  }
+}

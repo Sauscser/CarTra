@@ -1,0 +1,1165 @@
+type Subject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  category: String
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type CoreSubject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  category: String
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type SupportSubject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  category: String
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type JuniorLearningArea @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type JuniorSubject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  learningAreaCode: String
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type SNELearningArea @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type SNESubject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  learningAreaCode: String
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Track @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Pathway @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  trackId: ID
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Career @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer", "tertiaryOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  description: String
+  pathwayId: ID
+  clusterRequirements: AWSJSON
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Competency @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  description: String
+  domain: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type CoreCompetency @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  description: String
+  domain: String
+  gradeBand: String
+  rubricTemplateId: ID
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type CoreValue @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  code: String!
+  name: String!
+  description: String
+  domain: String
+  gradeBand: String
+  rubricTemplateId: ID
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentRubric @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  teacherId: ID!
+  schoolCode: String!
+  classCode: String
+  subjectId: ID
+  competencyId: ID
+  coreValueId: ID
+  rubricType: String!
+  title: String!
+  description: String
+  academicYear: String!
+  termOrCycle: String
+  status: String!
+  rubricConfigJson: AWSJSON
+  s3Bucket: String
+  fileKey: String
+  fileName: String
+  fileType: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentRubricCriterion @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  rubricId: ID!
+  parentCriterionId: ID
+  code: String
+  title: String!
+  description: String
+  criterionType: String!
+  weight: Float
+  displayOrder: Int
+  maxScore: Float
+  isRequired: Boolean
+  scoringMode: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentRubricColumn @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  rubricId: ID!
+  code: String!
+  title: String!
+  description: String
+  columnType: String!
+  minScore: Float
+  maxScore: Float
+  weight: Float
+  displayOrder: Int
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentRubricScore @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  rubricId: ID!
+  learnerId: ID!
+  criterionId: ID!
+  columnId: ID!
+  score: Float
+  achievementLevel: String
+  teacherComment: String
+  evidenceAttachmentId: ID
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ObservationChecklist @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  teacherId: ID!
+  schoolCode: String!
+  classCode: String
+  subjectId: ID
+  competencyId: ID
+  coreValueId: ID
+  checklistType: String!
+  title: String!
+  description: String
+  academicYear: String!
+  termOrCycle: String
+  status: String!
+  scoringScale: String
+  totalScore: Float
+  rubricTemplateId: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ObservationChecklistItem @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  checklistId: ID!
+  parentItemId: ID
+  code: String
+  title: String!
+  description: String
+  itemType: String!
+  domain: String
+  maxScore: Float
+  weight: Float
+  displayOrder: Int
+  isRequired: Boolean
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ObservationChecklistEntry @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  checklistId: ID!
+  learnerId: ID!
+  itemId: ID!
+  score: Float
+  level: String
+  teacherComment: String
+  evidenceAttachmentId: ID
+  observedAt: AWSDateTime
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type RatingScale @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  teacherId: ID!
+  schoolCode: String!
+  classCode: String
+  subjectId: ID
+  competencyId: ID
+  coreValueId: ID
+  scaleType: String!
+  title: String!
+  description: String
+  academicYear: String!
+  termOrCycle: String
+  status: String!
+  levelLabelsJson: AWSJSON
+  totalScore: Float
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type RatingScaleRow @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  scaleId: ID!
+  parentRowId: ID
+  code: String
+  title: String!
+  description: String
+  rowType: String!
+  maxScore: Float
+  weight: Float
+  displayOrder: Int
+  descriptorJson: AWSJSON
+  isRequired: Boolean
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type RatingScaleEntry @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  scaleId: ID!
+  learnerId: ID!
+  rowId: ID!
+  score: Float
+  level: String
+  teacherComment: String
+  evidenceAttachmentId: ID
+  assessedAt: AWSDateTime
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerPortfolio @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  schoolCode: String!
+  academicYear: String!
+  title: String!
+  description: String
+  generatedByUserId: ID!
+  portfolioType: String!
+  summaryJson: AWSJSON
+  coverImageKey: String
+  generatedAt: AWSDateTime
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerPortfolioAsset @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  portfolioId: ID!
+  learnerId: ID!
+  resourceId: ID
+  assetType: String!
+  title: String!
+  description: String
+  s3Bucket: String!
+  fileKey: String!
+  fileName: String!
+  fileType: String
+  displayOrder: Int
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ObservationSchedule @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  schoolCode: String!
+  classCode: String
+  teacherId: ID!
+  observerUserId: ID
+  observationType: String!
+  title: String!
+  description: String
+  academicYear: String!
+  termOrCycle: String
+  scheduledDate: AWSDate
+  observedDate: AWSDate
+  status: String!
+  notes: String
+  rubricTemplateId: ID
+  s3Bucket: String
+  fileKey: String
+  fileName: String
+  fileType: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerDocumentResource @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [create, read, update, delete] }]) {
+  id: ID!
+  learnerId: ID!
+  schoolCode: String
+  classCode: String
+  uploadedByUserId: ID!
+  uploadedByRole: String!
+  resourceType: String!
+  resourceCategory: String
+  title: String!
+  description: String
+  s3Bucket: String!
+  fileKey: String!
+  fileName: String!
+  fileType: String
+  fileSizeBytes: Int
+  checksum: String
+  relatedCompetencyId: ID
+  relatedCoreValueId: ID
+  relatedAssessmentId: ID
+  relatedObservationId: ID
+  isPublished: Boolean
+  status: String!
+  metadata: AWSJSON
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerAssessmentEvidenceCollection @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  schoolCode: String!
+  classCode: String
+  academicYear: String!
+  termOrCycle: String
+  assessmentToolType: String!
+  assessmentToolId: ID!
+  collectionTitle: String!
+  description: String
+  createdByUserId: ID!
+  status: String!
+  metadata: AWSJSON
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerAssessmentEvidenceItem @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  collectionId: ID!
+  learnerId: ID!
+  assessmentToolType: String!
+  assessmentToolId: ID!
+  documentNumber: Int
+  title: String!
+  description: String
+  documentType: String!
+  category: String
+  source: String
+  pageCount: Int
+  s3Bucket: String!
+  fileKey: String!
+  fileName: String!
+  fileType: String
+  fileSizeBytes: Int
+  checksum: String
+  isPrimary: Boolean
+  sortOrder: Int
+  captureDate: AWSDate
+  uploadedByUserId: ID!
+  uploadedByRole: String!
+  metadata: AWSJSON
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AcademicTarget @model @auth(rules: [{ allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal"], operations: [read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  academicYear: String!
+  targetValues: AWSJSON
+  subjectTargets: AWSJSON
+  careerId: ID
+  pathwayId: ID
+  strategyNotes: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type PerformanceIndicator @model @auth(rules: [{ allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal"], operations: [read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  academicYear: String!
+  termOrCycle: String!
+  subjectId: ID
+  subjectCode: String
+  targetScore: Float
+  achievedScore: Float
+  competencyId: ID
+  competencyName: String
+  competencyScore: Float
+  valuesAndAttitudesScore: Float
+  engagementScore: Float
+  notes: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerCompetency @model @auth(rules: [{ allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal"], operations: [read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  competencyId: ID!
+  competencyName: String!
+  score: Float
+  level: String
+  evidenceReference: String
+  notes: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type SchoolClass @model @auth(rules: [{ allow: groups, groups: ["subCountyOfficer", "principal", "teacher"], operations: [create, read, update, delete] }, { allow: groups, groups: ["countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  subCountyCode: String!
+  schoolCode: String!
+  principalId: ID
+  classCode: String!
+  className: String!
+  gradeLevel: String
+  stream: String
+  academicYear: String!
+  teacherIds: [ID]
+  subjectIds: [ID]
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerEnrollment @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  schoolCode: String!
+  classCode: String
+  academicYear: String!
+  termOrCycle: String
+  enrollmentStatus: String!
+  promotedToNextClass: Boolean
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentTask @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  schoolCode: String!
+  classCode: String
+  subjectId: ID
+  teacherId: ID!
+  title: String!
+  assessmentType: String!
+  academicYear: String!
+  termOrCycle: String!
+  dueDate: AWSDate
+  maxScore: Float
+  description: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentSubmission @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  assessmentTaskId: ID!
+  subjectId: ID
+  teacherId: ID!
+  score: Float
+  grade: String
+  remarks: String
+  submissionStatus: String!
+  submittedAt: AWSDateTime
+  reviewedAt: AWSDateTime
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearningMaterial @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID
+  schoolCode: String
+  classCode: String
+  subjectId: ID
+  uploadedByUserId: ID!
+  uploadedByRole: String!
+  materialType: String!
+  title: String!
+  description: String
+  fileKey: String!
+  fileName: String!
+  fileType: String
+  isPublished: Boolean
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AttendanceRecord @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  schoolCode: String!
+  classCode: String
+  academicYear: String!
+  termOrCycle: String!
+  presentDays: Int
+  absentDays: Int
+  punctualityScore: Float
+  engagementScore: Float
+  notes: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ValuesAndAttitudesRecord @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  academicYear: String!
+  termOrCycle: String!
+  competencyArea: String!
+  score: Float
+  level: String
+  notes: String
+  observedByUserId: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type SupportPlan @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  schoolCode: String
+  assignedToUserId: ID
+  authorUserId: ID!
+  supportType: String!
+  goals: String
+  actionItems: String
+  status: String!
+  dueDate: AWSDate
+  resolvedAt: AWSDate
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type EscalationCase @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  triggerType: String!
+  currentDeviationPercent: Float
+  escalationLevel: String!
+  reviewScope: String
+  assignedToUserId: ID
+  assignedRole: String
+  status: String!
+  resolutionNote: String
+  openedAt: AWSDateTime
+  resolvedAt: AWSDateTime
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ParentLearnerLink @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal"], operations: [create, read, update, delete] }, { allow: private, operations: [read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }]) {
+  id: ID!
+  parentUserId: ID!
+  learnerId: ID!
+  nationalId: String
+  relationshipType: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type TertiaryCourse @model @auth(rules: [{ allow: groups, groups: ["tertiaryOfficer", "nationalOfficer", "appOwner"], operations: [create, read, update, delete] }, { allow: private, operations: [create, read, update] }]) {
+  id: ID!
+  institutionId: ID
+  courseCode: String
+  courseName: String!
+  pathwayId: ID
+  minimumClusterScore: Float
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AcademicCalendar @model @auth(rules: [{ allow: groups, groups: ["nationalOfficer", "regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "appOwner"], operations: [create, read, update, delete] }, { allow: groups, groups: ["teacher"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  schoolCode: String!
+  academicYear: String!
+  startDate: AWSDate
+  endDate: AWSDate
+  calendarType: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type TermDefinition @model @auth(rules: [{ allow: groups, groups: ["nationalOfficer", "regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "appOwner"], operations: [create, read, update, delete] }, { allow: groups, groups: ["teacher"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  schoolCode: String!
+  academicYear: String!
+  termName: String!
+  termCode: String!
+  startDate: AWSDate
+  endDate: AWSDate
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type User @model @auth(rules: [{ allow: groups, groups: ["appOwner"], operations: [create, read, update, delete] }, { allow: groups, groups: ["nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer"], operations: [create, read, update] }, { allow: groups, groups: ["countyOfficer"], operations: [create, read, update] }, { allow: groups, groups: ["subCountyOfficer"], operations: [create, read, update] }, { allow: groups, groups: ["principal"], operations: [create, read, update] }, { allow: groups, groups: ["teacher"], operations: [create, read, update] }, { allow: groups, groups: ["tertiaryOfficer"], operations: [create, read, update] }, { allow: owner, ownerField: "email", operations: [read, update] }]) {
+  id: ID!
+  email: String!
+  phoneNumber: String
+  role: String!
+  status: String!
+  fullName: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type OrgHierarchy @model @auth(rules: [{ allow: groups, groups: ["appOwner"], operations: [create, read, update, delete] }, { allow: groups, groups: ["nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["countyOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["subCountyOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  entityType: String! # nation, region, county, subCounty, school
+  code: String!
+  parentCode: String
+  name: String!
+  nationCode: String
+  regionCode: String
+  countyCode: String
+  subCountyCode: String
+  schoolCode: String
+  assignedOfficerEmail: String
+  assignedOfficerRole: String
+  status: String!
+  metadata: AWSJSON
+  createdBy: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type NationalOfficerProfile @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer"], operations: [read] }]) {
+  id: ID!
+  userId: ID!
+  fullName: String!
+  nationCode: String!
+  assignedRegions: [String]
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type RegionalOfficerProfile @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer", "regionalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["countyOfficer"], operations: [read] }]) {
+  id: ID!
+  userId: ID!
+  fullName: String!
+  nationCode: String!
+  regionCode: String!
+  assignedCounties: [String]
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type CountyOfficerProfile @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer", "regionalOfficer", "countyOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["subCountyOfficer"], operations: [read] }]) {
+  id: ID!
+  userId: ID!
+  fullName: String!
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  assignedSubCounties: [String]
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type SubCountyOfficerProfile @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer", "regionalOfficer", "countyOfficer", "subCountyOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal"], operations: [read] }]) {
+  id: ID!
+  userId: ID!
+  fullName: String!
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  subCountyCode: String!
+  assignedSchools: [String]
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type PrincipalProfile @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer", "regionalOfficer", "countyOfficer", "subCountyOfficer", "principal"], operations: [create, read, update, delete] }, { allow: groups, groups: ["teacher"], operations: [read] }]) {
+  id: ID!
+  userId: ID!
+  fullName: String!
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  subCountyCode: String!
+  schoolCode: String!
+  schoolName: String
+  tscNumber: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type TeacherProfile @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer", "regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher"], operations: [create, read, update, delete] }]) {
+  id: ID!
+  userId: ID!
+  fullName: String!
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  subCountyCode: String!
+  schoolCode: String!
+  tscNumber: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type TeacherHandledSubject @model @auth(rules: [{ allow: groups, groups: ["appOwner"], operations: [create, read, update, delete] }, { allow: groups, groups: ["nationalOfficer", "regionalOfficer", "countyOfficer", "subCountyOfficer", "principal"], operations: [create, read, update, delete] }, { allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  teacherId: ID!
+  schoolCode: String!
+  subjectId: ID
+  subjectCode: String
+  subjectName: String!
+  academicYear: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type TeacherSubjectAssignment @model @auth(rules: [{ allow: groups, groups: ["appOwner"], operations: [create, read, update, delete] }, { allow: groups, groups: ["nationalOfficer", "regionalOfficer", "countyOfficer", "subCountyOfficer", "principal"], operations: [create, read, update, delete] }, { allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  teacherId: ID!
+  schoolCode: String!
+  subjectId: ID
+  subjectCode: String
+  subjectName: String!
+  classCode: String
+  className: String
+  academicYear: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type ParentProfile @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer", "regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher"], operations: [create, read, update, delete] }, { allow: private, operations: [read, update] }]) {
+  id: ID!
+  userId: ID!
+  fullName: String!
+  nationalId: String
+  linkedLearnerIds: [ID]
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerProfile @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  userId: ID!
+  learnerId: ID!
+  fullName: String!
+  assessmentNumber: String!
+  gender: String
+  gradeLevel: String
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  subCountyCode: String!
+  schoolCode: String!
+  classCode: String
+  parentNationalId: String
+  selectedCareerId: ID
+  selectedPathwayId: ID
+  supportProfile: AWSJSON
+  status: String!
+  createdByTeacherId: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type TertiaryInstitutionProfile @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer", "regionalOfficer", "countyOfficer", "tertiaryOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  userId: ID!
+  institutionName: String!
+  nationCode: String!
+  regionCode: String
+  countyCode: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Grade12ResultSummary @model @auth(rules: [{ allow: private, operations: [create, read, update, delete] }]) {
+  id: ID!
+  learnerId: ID!
+  schoolCode: String!
+  countyCode: String
+  regionCode: String
+  nationCode: String!
+  academicYear: String!
+  gradeLevel: String!
+  targetCareerId: ID
+  targetCareerName: String
+  pathwayId: ID
+  pathwayName: String
+  finalAggregatePoints: Float
+  requiredAggregatePoints: Float
+  aggregateGap: Float
+  resultStatus: String!
+  wasTargetCareerReached: Boolean
+  placementStatus: String
+  institutionId: ID
+  institutionName: String
+  courseId: ID
+  courseName: String
+  recordedByUserId: ID!
+  recordedAt: AWSDateTime
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Learner @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  assessmentNumber: String!
+  fullName: String!
+  gender: String
+  gradeLevel: String
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  subCountyCode: String!
+  schoolCode: String!
+  classCode: String
+  parentNationalId: String
+  selectedCareerId: ID
+  selectedPathwayId: ID
+  supportProfile: AWSJSON
+  status: String!
+  createdByTeacherId: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AcademicRecord @model @auth(rules: [{ allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal"], operations: [read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  academicYear: String!
+  termOrCycle: String!
+  targetValues: AWSJSON
+  achievedValues: AWSJSON
+  subjectBreakdown: AWSJSON
+  competencyBreakdown: AWSJSON
+  deviationPercent: Float
+  escalationLevel: String
+  escalationStatus: String
+  calculatedAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Intervention @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID
+  authorUserId: ID!
+  authorRole: String!
+  jurisdictionCode: String
+  interventionType: String!
+  note: String!
+  dueDate: AWSDate
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type Feedback @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer", "tertiaryOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read, create] }]) {
+  id: ID!
+  targetType: String!
+  targetId: ID!
+  audienceType: String!
+  audienceId: ID!
+  authorUserId: ID!
+  authorRole: String!
+  message: String!
+  category: String!
+  priority: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type CatalogConfig @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  configId: String!
+  configType: String!
+  code: String
+  name: String!
+  parentCode: String
+  rules: AWSJSON
+  effectiveFrom: AWSDate
+  effectiveTo: AWSDate
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type PlacementOutcome @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "tertiaryOfficer", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  intendedCareerId: ID
+  selectedPathwayId: ID
+  institutionId: ID
+  courseId: ID
+  actualPlacementOutcome: String
+  placementStatus: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type EvidenceAttachment @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  uploadedByUserId: ID!
+  schoolCode: String
+  classCode: String
+  subjectId: ID
+  evidenceType: String
+  s3Bucket: String
+  fileName: String!
+  fileKey: String!
+  fileType: String
+  fileSizeBytes: Int
+  checksum: String
+  relatedCompetency: String
+  capturedAt: AWSDateTime
+  status: String
+  metadata: AWSJSON
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type SubjectPathwayMap @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  pathwayId: ID!
+  pathwayCode: String
+  pathwayName: String
+  subjectId: ID!
+  subjectCode: String
+  subjectName: String
+  isCore: Boolean
+  displayOrder: Int
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type NationalAggregateRequirement @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  academicYear: String!
+  pathwayId: ID
+  pathwayCode: String
+  pathwayName: String
+  courseId: ID
+  courseCode: String
+  courseName: String
+  requiredAggregatePoints: Float!
+  notes: String
+  status: String!
+  createdByUserId: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerAnnualAggregate @model @auth(rules: [{ allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal"], operations: [read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  academicYear: String!
+  pathwayId: ID
+  courseId: ID
+  achievedAggregatePoints: Float
+  personalTargetAggregatePoints: Float
+  requiredAggregatePoints: Float
+  aggregateGap: Float
+  computedFrom: AWSJSON
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentToolTemplate @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  toolCode: String!
+  toolName: String!
+  toolType: String!
+  category: String
+  description: String
+  requiresEvidenceDefault: Boolean
+  scoringMode: String!
+  maxScore: Float
+  levelScaleJson: AWSJSON
+  rubricJson: AWSJSON
+  academicYear: String
+  version: String
+  status: String!
+  createdByUserId: ID
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentToolParameter @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer", "countyOfficer", "subCountyOfficer", "principal", "teacher", "tertiaryOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  toolTemplateId: ID!
+  parameterCode: String!
+  parameterName: String!
+  domain: String
+  weight: Float
+  maxScore: Float
+  levelDescriptorsJson: AWSJSON
+  requiresEvidence: Boolean
+  displayOrder: Int
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerAssessment @model @auth(rules: [{ allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal"], operations: [read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  teacherId: ID!
+  schoolCode: String!
+  classCode: String
+  subjectId: ID
+  competencyId: ID
+  toolTemplateId: ID!
+  academicYear: String!
+  termOrCycle: String!
+  assessmentDate: AWSDate
+  taskCode: String
+  taskTitle: String!
+  taskDescription: String
+  assessorType: String
+  assessedByLearnerId: ID
+  groupId: String
+  observationContext: String
+  selfReflectionText: String
+  overallScore: Float
+  overallLevel: String
+  teacherComment: String
+  moderationStatus: String
+  moderationComment: String
+  status: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerAssessmentParameterScore @model @auth(rules: [{ allow: groups, groups: ["teacher"], operations: [create, read, update, delete] }, { allow: groups, groups: ["principal"], operations: [read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerAssessmentId: ID!
+  parameterId: ID!
+  parameterCode: String
+  parameterName: String
+  score: Float
+  level: String
+  comment: String
+  evidenceRequired: Boolean
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AssessmentEvidenceLink @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  learnerAssessmentId: ID!
+  parameterScoreId: ID
+  evidenceAttachmentId: ID!
+  caption: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}

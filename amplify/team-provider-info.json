@@ -1,0 +1,43 @@
+{
+  "dev": {
+    "awscloudformation": {
+      "AuthRoleName": "amplify-cartra-dev-6e046-authRole",
+      "UnauthRoleArn": "arn:aws:iam::973681623464:role/amplify-cartra-dev-6e046-unauthRole",
+      "AuthRoleArn": "arn:aws:iam::973681623464:role/amplify-cartra-dev-6e046-authRole",
+      "Region": "eu-north-1",
+      "DeploymentBucketName": "amplify-cartra-dev-6e046-deployment",
+      "UnauthRoleName": "amplify-cartra-dev-6e046-unauthRole",
+      "StackName": "amplify-cartra-dev-6e046",
+      "StackId": "arn:aws:cloudformation:eu-north-1:973681623464:stack/amplify-cartra-dev-6e046/65c5d310-a6de-11f1-9ef7-0e1cf6e4e2d9",
+      "AmplifyAppId": "d3oj906n506t1o"
+    },
+    "categories": {
+      "auth": {
+        "cartra681f0691": {},
+        "userPoolGroups": {}
+      },
+      "function": {
+        "cartralearnerdeviation": {
+          "deploymentBucketName": "amplify-cartra-dev-6e046-deployment",
+          "s3Key": "amplify-builds/cartralearnerdeviation-66666c755861426b7674-build.zip"
+        },
+        "cartraassessmentprocessor": {
+          "deploymentBucketName": "amplify-cartra-dev-6e046-deployment",
+          "s3Key": "amplify-builds/cartraassessmentprocessor-47476b45554c6d4f6e4a-build.zip"
+        },
+        "cartraescalationmanager": {},
+        "cartrafilemetadatahandler": {},
+        "cartrasupportreminder": {}
+      },
+      "api": {
+        "cartra": {}
+      },
+      "storage": {
+        "s34c5bf2d4": {}
+      },
+      "custom": {
+        "shareds3access": {}
+      }
+    }
+  }
+}
