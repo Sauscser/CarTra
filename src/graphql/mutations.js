@@ -1701,6 +1701,8 @@ export const createLearnerDocumentResource = /* GraphQL */ `
     createLearnerDocumentResource(input: $input, condition: $condition) {
       id
       learnerId
+      relatedSubjectId
+      relatedSubjectName
       schoolCode
       classCode
       uploadedByUserId
@@ -1712,6 +1714,7 @@ export const createLearnerDocumentResource = /* GraphQL */ `
       s3Bucket
       fileKey
       fileName
+      externalUrl
       fileType
       fileSizeBytes
       checksum
@@ -1736,6 +1739,8 @@ export const updateLearnerDocumentResource = /* GraphQL */ `
     updateLearnerDocumentResource(input: $input, condition: $condition) {
       id
       learnerId
+      relatedSubjectId
+      relatedSubjectName
       schoolCode
       classCode
       uploadedByUserId
@@ -1747,6 +1752,7 @@ export const updateLearnerDocumentResource = /* GraphQL */ `
       s3Bucket
       fileKey
       fileName
+      externalUrl
       fileType
       fileSizeBytes
       checksum
@@ -1771,6 +1777,8 @@ export const deleteLearnerDocumentResource = /* GraphQL */ `
     deleteLearnerDocumentResource(input: $input, condition: $condition) {
       id
       learnerId
+      relatedSubjectId
+      relatedSubjectName
       schoolCode
       classCode
       uploadedByUserId
@@ -1782,6 +1790,7 @@ export const deleteLearnerDocumentResource = /* GraphQL */ `
       s3Bucket
       fileKey
       fileName
+      externalUrl
       fileType
       fileSizeBytes
       checksum
@@ -2892,7 +2901,7 @@ export const createTertiaryCourse = /* GraphQL */ `
       courseCode
       courseName
       pathwayId
-      minimumClusterScore
+      clusterRequirements
       status
       createdAt
       updatedAt
@@ -2911,7 +2920,7 @@ export const updateTertiaryCourse = /* GraphQL */ `
       courseCode
       courseName
       pathwayId
-      minimumClusterScore
+      clusterRequirements
       status
       createdAt
       updatedAt
@@ -2930,7 +2939,7 @@ export const deleteTertiaryCourse = /* GraphQL */ `
       courseCode
       courseName
       pathwayId
-      minimumClusterScore
+      clusterRequirements
       status
       createdAt
       updatedAt

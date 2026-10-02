@@ -8,7 +8,11 @@ import SectionCard from '../../components/shared/SectionCard';
 import ViewPerformance from '../../components/teacher/ViewPerformance';
 import LearnerComments from '../../components/shared/LearnerComments';
 import LearnerPerformanceGraphs from '../../components/shared/LearnerPerformanceGraphs';
+import SubjectPerformanceGraph from '../../components/shared/SubjectPerformanceGraph';
+import SubjectEvidenceActions from '../../components/shared/SubjectEvidenceActions';
+import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
 import calculateHistoricalClusterSeries, { calculateDeviationPercentage } from '../../utils/cluster';
+import { resolveLearnerCareerTarget } from '../../utils/learnerCareer';
 import { RegionalCountySetupContent } from './RegionalCountySetupScreen';
 
 type RegionEntity = {
@@ -193,9 +197,7 @@ function RegionalHomeContent() {
 
       const payload = result as { data?: { listLearnerProfiles?: { items?: Array<any> } } };
       const learnerRecord = payload.data?.listLearnerProfiles?.items?.[0];
-      const supportProfile = learnerRecord?.supportProfile;
-      const parsedProfile = supportProfile ? (typeof supportProfile === 'string' ? JSON.parse(supportProfile) : supportProfile) : null;
-      const savedCareerTarget = parsedProfile?.targetCareer ? String(parsedProfile.targetCareer).trim() : null;
+      const savedCareerTarget = await resolveLearnerCareerTarget(client, learnerRecord);
 
       setLearnerCareerMap((current) => ({ ...current, [learnerId]: savedCareerTarget }));
     } catch {
@@ -278,7 +280,6 @@ function RegionalHomeContent() {
         selectedSubjects: Array.isArray(parsedSupportProfile?.selectedSubjects) ? parsedSupportProfile.selectedSubjects : (Array.isArray(item?.selectedSubjects) ? item.selectedSubjects : []),
         historicalSelectedSubjects: Array.isArray(parsedSupportProfile?.historicalSelectedSubjects) ? parsedSupportProfile.historicalSelectedSubjects : (Array.isArray(item?.historicalSelectedSubjects) ? item.historicalSelectedSubjects : []),
         targetCareer: parsedSupportProfile?.targetCareer ?? item?.targetCareer ?? null,
-        targetClusterPoints: parsedSupportProfile?.targetClusterPoints ?? item?.targetClusterPoints ?? 0,
       };
 
       if (requestId !== profileRequestRef.current) {
@@ -376,7 +377,6 @@ function RegionalHomeContent() {
           selectedSubjects: Array.isArray(supportProfile?.selectedSubjects) ? supportProfile.selectedSubjects : (Array.isArray(learner?.selectedSubjects) ? learner.selectedSubjects : []),
           historicalSelectedSubjects: Array.isArray(supportProfile?.historicalSelectedSubjects) ? supportProfile.historicalSelectedSubjects : (Array.isArray(learner?.historicalSelectedSubjects) ? learner.historicalSelectedSubjects : []),
           targetCareer: supportProfile?.targetCareer ?? learner?.targetCareer ?? null,
-          targetClusterPoints: supportProfile?.targetClusterPoints ?? learner?.targetClusterPoints ?? 0,
         };
 
         const lastAssessment = getLatestClusterAssessment(learner, normalizedProfile);
@@ -422,22 +422,30 @@ function RegionalHomeContent() {
 
           {performanceAction === 'viewMenu' ? (
             <ViewPerformance
+              learner={selectedLearner}
+              profile={selectedLearnerProfile || {}}
+              targetCareer={learnerCareerMap[selectedLearner.id]}
               onViewCluster={() => setPerformanceAction('viewCluster')}
               onViewSubjects={() => setPerformanceAction('viewSubjects')}
               onViewGuidance={() => setPerformanceAction('viewGuidance')}
-              onViewEPortfolio={() => setPerformanceAction('viewEPortfolio')}
             />
           ) : null}
 
           {performanceAction === 'viewCluster' ? (
             <ScrollView style={{ marginTop: 8 }}>
-              <LearnerPerformanceGraphs learner={selectedLearner} profile={selectedLearnerProfile || {}} mode="cluster" />
+              <LearnerClusterPerformanceGraph learner={selectedLearner} profile={selectedLearnerProfile || {}} targetCareer={learnerCareerMap[selectedLearner.id]} />
             </ScrollView>
           ) : null}
 
           {performanceAction === 'viewSubjects' ? (
             <ScrollView style={{ marginTop: 8 }}>
-              <LearnerPerformanceGraphs learner={selectedLearner} profile={selectedLearnerProfile || {}} mode="subjects" />
+              <SubjectPerformanceGraph
+                learner={selectedLearner}
+                profile={selectedLearnerProfile || {}}
+                renderSubjectActions={(subject) => (
+                  <SubjectEvidenceActions learnerId={selectedLearner.id} subjectId={subject.id} subjectName={subject.label} />
+                )}
+              />
             </ScrollView>
           ) : null}
 

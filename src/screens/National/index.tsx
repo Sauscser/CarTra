@@ -8,12 +8,16 @@ import SectionCard from '../../components/shared/SectionCard';
 import ViewPerformance from '../../components/teacher/ViewPerformance';
 import LearnerComments from '../../components/shared/LearnerComments';
 import LearnerPerformanceGraphs from '../../components/shared/LearnerPerformanceGraphs';
-import { getLearnerProfile, listGrade12ResultSummaries, listLearnerDocumentResources, listLearnerProfiles, listOrgHierarchies, listTertiaryCourses, listTertiaryInstitutionProfiles, listUsers } from '../../graphql/queries';
-import calculateHistoricalClusterSeries, { calculateDeviationPercentage } from '../../utils/cluster';
+import SubjectPerformanceGraph from '../../components/shared/SubjectPerformanceGraph';
+import SubjectEvidenceActions from '../../components/shared/SubjectEvidenceActions';
+import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
+import { getLearnerProfile, listCoreSubjects, listGrade12ResultSummaries, listLearnerDocumentResources, listLearnerProfiles, listOrgHierarchies, listSubjects, listSupportSubjects, listTertiaryCourses, listTertiaryInstitutionProfiles, listUsers } from '../../graphql/queries';
+import calculateHistoricalClusterSeries, { calculateDeviationPercentage, getCbeAchievementLevel, getCourseRequirementGroups, hasCompleteCourseSubjectRequirements, parseCourseClusterRequirements } from '../../utils/cluster';
+import { resolveLearnerCareerTarget } from '../../utils/learnerCareer';
 import { NationalOfficerSetupContent } from './NationalOfficerSetupScreen';
 import { NationalCatalogContent, NationalRegionsContent } from './NationalHomeScreen';
 
-type NationalScreenKey = 'home' | 'setup' | 'regions' | 'catalog' | 'performance';
+type NationalScreenKey = 'home' | 'setup' | 'regions' | 'catalog' | 'performance' | 'deviations';
 
 type NationalEntity = {
   id: string;
@@ -48,6 +52,11 @@ const NATIONAL_ACTIONS: Array<{ key: Exclude<NationalScreenKey, 'home'>; title: 
     title: 'Performance Summary',
     description: 'National Grade 12 outcome trends, tertiary coverage, and career targets.',
   },
+  {
+    key: 'deviations',
+    title: "Learner's deviations",
+    description: 'Review learners whose latest deviation is below -80%.',
+  },
 ];
 
 function NationalPerformanceSummaryContent({
@@ -66,7 +75,7 @@ function NationalPerformanceSummaryContent({
     topCareers: Array<{ name: string; value: number }>;
   };
   tertiaryInstitutions: Array<{ id: string; institutionName: string; nationCode?: string | null; regionCode?: string | null; countyCode?: string | null; userId?: string | null; adminEmail?: string | null }>;
-  tertiaryCourses: Array<{ id: string; institutionId?: string | null; institutionName?: string | null; courseCode?: string | null; courseName: string; minimumClusterScore?: number | null; status?: string | null }>;
+  tertiaryCourses: Array<{ id: string; institutionId?: string | null; institutionName?: string | null; courseCode?: string | null; courseName: string; clusterRequirements?: any; status?: string | null }>;
 }) {
   const [expandedInstitutionIds, setExpandedInstitutionIds] = useState<Record<string, boolean>>({});
   const [showInstitutionList, setShowInstitutionList] = useState(true);
@@ -121,7 +130,12 @@ function NationalPerformanceSummaryContent({
                         institutionCourses.map((course) => (
                           <View key={course.id} style={styles.courseRow}>
                             <Text style={styles.catalogTitle}>{course.courseName}</Text>
-                            <Text style={styles.catalogMeta}>Code: {course.courseCode || 'N/A'} • Minimum cluster: {course.minimumClusterScore ?? 'Not set'}</Text>
+                            <Text style={styles.catalogMeta}>Code: {course.courseCode || 'N/A'}</Text>
+                            {hasCompleteCourseSubjectRequirements(course.clusterRequirements) ? (
+                              <Text style={styles.catalogMeta}>
+                                CBE requirements (score max {8 * getCourseRequirementGroups(course.clusterRequirements).length}): {getCourseRequirementGroups(course.clusterRequirements).map((group: any[]) => group.map((item) => `${item.subjectName || item.subjectId} min ${item.minimumPoints ?? '?'}${Number.isInteger(item.minimumPoints) ? ` ${getCbeAchievementLevel(Number(item.minimumPoints))}` : ''}`).join(' OR ')).join(' · ')}
+                              </Text>
+                            ) : <Text style={styles.catalogMeta}>Not assignable: CBE subject groups or per-subject minima are missing.</Text>}
                           </View>
                         ))
                       ) : (
@@ -155,6 +169,136 @@ function NationalPerformanceSummaryContent({
   );
 }
 
+function NationalDeviationWatchContent({
+  nationalLearners,
+  learnerCareerMap,
+  nationalRegions,
+  nationalCounties,
+  nationalSubCounties,
+  nationalSchools,
+  selectedRegionCode,
+  selectedCountyCode,
+  selectedSubCountyCode,
+  selectedSchoolCode,
+  selectedLearnerGrade,
+  setSelectedRegionCode,
+  setSelectedCountyCode,
+  setSelectedSubCountyCode,
+  setSelectedSchoolCode,
+  setSelectedLearnerGrade,
+  onViewPerformance,
+}: {
+  nationalLearners: Array<{ id: string; fullName: string; gradeLevel?: string | null; classCode?: string | null; assessmentNumber?: string | null; regionCode?: string | null; countyCode?: string | null; subCountyCode?: string | null; schoolCode?: string | null }>;
+  learnerCareerMap: Record<string, string | null>;
+  nationalRegions: Array<{ id: string; code: string; name: string }>;
+  nationalCounties: Array<{ id: string; code: string; name: string }>;
+  nationalSubCounties: Array<{ id: string; code: string; name: string }>;
+  nationalSchools: Array<{ id: string; code: string; name: string }>;
+  selectedRegionCode: string | null;
+  selectedCountyCode: string | null;
+  selectedSubCountyCode: string | null;
+  selectedSchoolCode: string | null;
+  selectedLearnerGrade: string | null;
+  setSelectedRegionCode: (value: string | null) => void;
+  setSelectedCountyCode: (value: string | null) => void;
+  setSelectedSubCountyCode: (value: string | null) => void;
+  setSelectedSchoolCode: (value: string | null) => void;
+  setSelectedLearnerGrade: (value: string | null) => void;
+  onViewPerformance: (learner: { id: string; fullName: string; gradeLevel?: string | null; classCode?: string | null; assessmentNumber?: string | null; regionCode?: string | null; countyCode?: string | null; subCountyCode?: string | null; schoolCode?: string | null }) => void;
+}) {
+  const filteredLearners = nationalLearners.filter((learner) => {
+    const learnerGrade = String(learner.gradeLevel || learner.classCode || '').replace(/\D/g, '');
+    return learner.regionCode === selectedRegionCode && learner.countyCode === selectedCountyCode && learner.subCountyCode === selectedSubCountyCode && learner.schoolCode === selectedSchoolCode && learnerGrade === selectedLearnerGrade;
+  });
+
+  const regionSelector = (
+    <View style={{ marginBottom: 12 }}>
+      {!nationalRegions.length ? (
+        <Text style={styles.empty}>No regions are available in this nation.</Text>
+      ) : nationalRegions.map((regionItem) => (
+        <TouchableOpacity
+          key={regionItem.id}
+          style={[styles.row, selectedRegionCode === regionItem.code && styles.rowSelected]}
+          onPress={() => { setSelectedRegionCode(regionItem.code); }}
+          accessibilityState={{ selected: selectedRegionCode === regionItem.code }}
+        >
+          <Text style={styles.rowCode}>{regionItem.code}</Text>
+          <Text style={styles.rowName}>{regionItem.name}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
+  return (
+    <SectionCard title="Learner's deviations" subtitle="Learners whose latest assessment deviation is below -80% in this nation." defaultExpanded={false}>
+      {!nationalLearners.length ? (
+        <Text style={styles.empty}>No learners in this nation are below target by more than 80% in their last grade yet.</Text>
+      ) : (
+        <>
+          {!selectedRegionCode || !selectedCountyCode || !selectedSubCountyCode || !selectedSchoolCode || !selectedLearnerGrade ? (
+            <Text style={styles.empty}>Select a region below, then choose the county, sub-county, school, and grade to view learners.</Text>
+          ) : null}
+          {regionSelector}
+          {selectedRegionCode ? (
+            <View style={styles.selectionBlock}>
+              <Text style={styles.selectionTitle}>Counties in {nationalRegions.find((item) => item.code === selectedRegionCode)?.name || selectedRegionCode}</Text>
+              {!nationalCounties.length ? <Text style={styles.empty}>No counties found in this region.</Text> : nationalCounties.map((county) => (
+                <TouchableOpacity key={county.id} style={[styles.schoolButton, selectedCountyCode === county.code && styles.schoolButtonActive]} onPress={() => setSelectedCountyCode(county.code)} accessibilityState={{ selected: selectedCountyCode === county.code }}>
+                  <Text style={styles.rowCode}>{county.code}</Text><Text style={styles.rowName}>{county.name}</Text>
+                </TouchableOpacity>
+              ))}
+              {selectedCountyCode ? (
+                <View style={styles.selectionBlock}>
+                  <Text style={styles.selectionTitle}>Sub-counties in {nationalCounties.find((item) => item.code === selectedCountyCode)?.name || selectedCountyCode}</Text>
+                  {!nationalSubCounties.length ? <Text style={styles.empty}>No sub-counties found in this county.</Text> : nationalSubCounties.map((subCounty) => (
+                    <TouchableOpacity key={subCounty.id} style={[styles.schoolButton, selectedSubCountyCode === subCounty.code && styles.schoolButtonActive]} onPress={() => setSelectedSubCountyCode(subCounty.code)} accessibilityState={{ selected: selectedSubCountyCode === subCounty.code }}>
+                      <Text style={styles.rowCode}>{subCounty.code}</Text><Text style={styles.rowName}>{subCounty.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {selectedSubCountyCode ? (
+                    <View style={styles.selectionBlock}>
+                      <Text style={styles.selectionTitle}>Schools in {nationalSubCounties.find((item) => item.code === selectedSubCountyCode)?.name || selectedSubCountyCode}</Text>
+                      {!nationalSchools.length ? <Text style={styles.empty}>No schools found in this sub-county.</Text> : nationalSchools.map((school) => (
+                        <TouchableOpacity key={school.id} style={[styles.schoolButton, selectedSchoolCode === school.code && styles.schoolButtonActive]} onPress={() => { setSelectedSchoolCode(school.code); setSelectedLearnerGrade(null); }} accessibilityState={{ selected: selectedSchoolCode === school.code }}>
+                          <Text style={styles.rowCode}>{school.code}</Text><Text style={styles.rowName}>{school.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                      {selectedSchoolCode ? <View style={styles.gradeSelector}>{['7', '8', '9', '10', '11', '12'].map((grade) => (
+                        <TouchableOpacity key={grade} style={[styles.gradeButton, selectedLearnerGrade === grade && styles.gradeButtonActive]} onPress={() => setSelectedLearnerGrade(grade)} accessibilityState={{ selected: selectedLearnerGrade === grade }}>
+                          <Text style={[styles.gradeButtonText, selectedLearnerGrade === grade && styles.gradeButtonTextActive]}>Grade {grade}</Text>
+                        </TouchableOpacity>
+                      ))}</View> : null}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {selectedRegionCode && selectedCountyCode && selectedSubCountyCode && selectedSchoolCode && selectedLearnerGrade ? (
+            <ScrollView style={{ maxHeight: 720 }} contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator>
+              {filteredLearners.map((learner) => (
+                <View key={learner.id} style={styles.learnerRow}>
+                  <Text style={styles.learnerText}>{learner.fullName} - {learnerCareerMap[learner.id] || 'Career target not set'}</Text>
+                  <Text style={styles.learnerMeta}>{nationalSchools.find((school) => school.code === learner.schoolCode)?.name || learner.schoolCode || 'School N/A'} • {learner.schoolCode || 'Registration code N/A'}</Text>
+                  <Text style={styles.learnerMeta}>Grade {learner.gradeLevel || learner.classCode || 'N/A'} • Class {learner.classCode || 'N/A'} • {learner.subCountyCode || 'N/A'} • {learner.countyCode || 'N/A'} • {learner.regionCode || 'N/A'}</Text>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => onViewPerformance(learner)}
+                  >
+                    <Text style={styles.actionButtonText}>View performance</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {!filteredLearners.length ? <Text style={styles.empty}>No affected learners match this selection.</Text> : null}
+            </ScrollView>
+          ) : null}
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
 export default function NationalOfficeScreen() {
   const [activeScreen, setActiveScreen] = useState<NationalScreenKey>('home');
   const client = useMemo(() => generateClient(), []);
@@ -175,7 +319,7 @@ export default function NationalOfficeScreen() {
     topCareers: Array<{ name: string; value: number }>(),
   });
   const [tertiaryInstitutions, setTertiaryInstitutions] = useState<Array<{ id: string; institutionName: string; nationCode?: string | null; regionCode?: string | null; countyCode?: string | null; userId?: string | null; adminEmail?: string | null }>>([]);
-  const [tertiaryCourses, setTertiaryCourses] = useState<Array<{ id: string; institutionId?: string | null; institutionName?: string | null; courseCode?: string | null; courseName: string; minimumClusterScore?: number | null; status?: string | null }>>([]);
+  const [tertiaryCourses, setTertiaryCourses] = useState<Array<{ id: string; institutionId?: string | null; institutionName?: string | null; courseCode?: string | null; courseName: string; clusterRequirements?: any; status?: string | null }>>([]);
   const [selectedRegionCode, setSelectedRegionCode] = useState<string | null>(null);
   const [selectedCountyCode, setSelectedCountyCode] = useState<string | null>(null);
   const [selectedSubCountyCode, setSelectedSubCountyCode] = useState<string | null>(null);
@@ -292,9 +436,7 @@ export default function NationalOfficeScreen() {
 
       const payload = result as { data?: { listLearnerProfiles?: { items?: Array<any> } } };
       const learnerRecord = payload.data?.listLearnerProfiles?.items?.[0];
-      const supportProfile = learnerRecord?.supportProfile;
-      const parsedProfile = supportProfile ? (typeof supportProfile === 'string' ? JSON.parse(supportProfile) : supportProfile) : null;
-      const savedCareerTarget = parsedProfile?.targetCareer ? String(parsedProfile.targetCareer).trim() : null;
+      const savedCareerTarget = await resolveLearnerCareerTarget(client, learnerRecord);
 
       setLearnerCareerMap((current) => ({ ...current, [learnerId]: savedCareerTarget }));
     } catch {
@@ -367,7 +509,6 @@ export default function NationalOfficeScreen() {
         selectedSubjects: Array.isArray(parsedSupportProfile?.selectedSubjects) ? parsedSupportProfile.selectedSubjects : (Array.isArray(item?.selectedSubjects) ? item.selectedSubjects : []),
         historicalSelectedSubjects: Array.isArray(parsedSupportProfile?.historicalSelectedSubjects) ? parsedSupportProfile.historicalSelectedSubjects : (Array.isArray(item?.historicalSelectedSubjects) ? item.historicalSelectedSubjects : []),
         targetCareer: parsedSupportProfile?.targetCareer ?? item?.targetCareer ?? null,
-        targetClusterPoints: parsedSupportProfile?.targetClusterPoints ?? item?.targetClusterPoints ?? 0,
       };
 
       if (requestId !== profileRequestRef.current) {
@@ -494,7 +635,7 @@ export default function NationalOfficeScreen() {
     }
 
     try {
-      const [institutionResult, courseResult, userResult] = await Promise.all([
+      const [institutionResult, courseResult, userResult, subjectsResult, coreSubjectsResult, supportSubjectsResult] = await Promise.all([
         client.graphql({
           query: listTertiaryInstitutionProfiles,
           variables: { limit: 500 },
@@ -507,11 +648,22 @@ export default function NationalOfficeScreen() {
           query: listUsers,
           variables: { limit: 500 },
         } as any),
+        client.graphql({ query: listSubjects, variables: { limit: 500 } } as any),
+        client.graphql({ query: listCoreSubjects, variables: { limit: 500 } } as any),
+        client.graphql({ query: listSupportSubjects, variables: { limit: 500 } } as any),
       ]);
 
       const institutions = ((institutionResult as any).data?.listTertiaryInstitutionProfiles?.items || []) as Array<any>;
       const courses = ((courseResult as any).data?.listTertiaryCourses?.items || []) as Array<any>;
       const users = ((userResult as any).data?.listUsers?.items || []) as Array<any>;
+      const subjectNameById = [
+        ...(((subjectsResult as any).data?.listSubjects?.items || []) as Array<any>),
+        ...(((coreSubjectsResult as any).data?.listCoreSubjects?.items || []) as Array<any>),
+        ...(((supportSubjectsResult as any).data?.listSupportSubjects?.items || []) as Array<any>),
+      ].reduce((map: Record<string, string>, subject: any) => {
+        if (subject?.id) map[String(subject.id)] = String(subject.name || subject.code || subject.id);
+        return map;
+      }, {});
 
       const emailMap = users.reduce((map: Record<string, string>, user: any) => {
         if (user?.id) {
@@ -548,7 +700,18 @@ export default function NationalOfficeScreen() {
           institutionName: institutionMap.get(String(course?.institutionId || '')) || 'Unknown institution',
           courseCode: course.courseCode,
           courseName: course.courseName,
-          minimumClusterScore: typeof course.minimumClusterScore === 'number' ? course.minimumClusterScore : Number(course.minimumClusterScore) || null,
+          clusterRequirements: course.clusterRequirements ? (() => {
+            const parsed = typeof course.clusterRequirements === 'string' ? JSON.parse(course.clusterRequirements) : course.clusterRequirements;
+            const normalized = parseCourseClusterRequirements(parsed);
+            if (!normalized?.subjectSequence) return null;
+            return {
+              ...normalized,
+              subjectSequence: normalized.subjectSequence.map((requirement) => ({
+                ...requirement,
+                subjectName: subjectNameById[String(requirement.subjectId)] || String(requirement.subjectId),
+              })),
+            };
+          })() : null,
           status: course.status,
         }));
 
@@ -609,7 +772,6 @@ export default function NationalOfficeScreen() {
           selectedSubjects: Array.isArray(supportProfile?.selectedSubjects) ? supportProfile.selectedSubjects : (Array.isArray(learner?.selectedSubjects) ? learner.selectedSubjects : []),
           historicalSelectedSubjects: Array.isArray(supportProfile?.historicalSelectedSubjects) ? supportProfile.historicalSelectedSubjects : (Array.isArray(learner?.historicalSelectedSubjects) ? learner.historicalSelectedSubjects : []),
           targetCareer: supportProfile?.targetCareer ?? learner?.targetCareer ?? null,
-          targetClusterPoints: supportProfile?.targetClusterPoints ?? learner?.targetClusterPoints ?? 0,
         };
 
         const lastAssessment = getLatestClusterAssessment(learner, normalizedProfile);
@@ -656,22 +818,30 @@ export default function NationalOfficeScreen() {
 
           {performanceAction === 'viewMenu' ? (
             <ViewPerformance
+              learner={selectedLearner}
+              profile={selectedLearnerProfile || {}}
+              targetCareer={learnerCareerMap[selectedLearner.id]}
               onViewCluster={() => setPerformanceAction('viewCluster')}
               onViewSubjects={() => setPerformanceAction('viewSubjects')}
               onViewGuidance={() => setPerformanceAction('viewGuidance')}
-              onViewEPortfolio={() => setPerformanceAction('viewEPortfolio')}
             />
           ) : null}
 
           {performanceAction === 'viewCluster' ? (
             <ScrollView style={{ marginTop: 8 }}>
-              <LearnerPerformanceGraphs learner={selectedLearner} profile={selectedLearnerProfile || {}} mode="cluster" />
+              <LearnerClusterPerformanceGraph learner={selectedLearner} profile={selectedLearnerProfile || {}} targetCareer={learnerCareerMap[selectedLearner.id]} />
             </ScrollView>
           ) : null}
 
           {performanceAction === 'viewSubjects' ? (
             <ScrollView style={{ marginTop: 8 }}>
-              <LearnerPerformanceGraphs learner={selectedLearner} profile={selectedLearnerProfile || {}} mode="subjects" />
+              <SubjectPerformanceGraph
+                learner={selectedLearner}
+                profile={selectedLearnerProfile || {}}
+                renderSubjectActions={(subject) => (
+                  <SubjectEvidenceActions learnerId={selectedLearner.id} subjectId={subject.id} subjectName={subject.label} />
+                )}
+              />
             </ScrollView>
           ) : null}
 
@@ -752,6 +922,40 @@ export default function NationalOfficeScreen() {
             tertiaryCourses={tertiaryCourses}
           />
         );
+      case 'deviations':
+        return (
+          <NationalDeviationWatchContent
+            nationalLearners={nationalLearners}
+            learnerCareerMap={learnerCareerMap}
+            nationalRegions={nationalRegions}
+            nationalCounties={nationalCounties}
+            nationalSubCounties={nationalSubCounties}
+            nationalSchools={nationalSchools}
+            selectedRegionCode={selectedRegionCode}
+            selectedCountyCode={selectedCountyCode}
+            selectedSubCountyCode={selectedSubCountyCode}
+            selectedSchoolCode={selectedSchoolCode}
+            selectedLearnerGrade={selectedLearnerGrade}
+            setSelectedRegionCode={setSelectedRegionCode}
+            setSelectedCountyCode={setSelectedCountyCode}
+            setSelectedSubCountyCode={setSelectedSubCountyCode}
+            setSelectedSchoolCode={setSelectedSchoolCode}
+            setSelectedLearnerGrade={setSelectedLearnerGrade}
+            onViewPerformance={async (learner) => {
+              profileRequestRef.current += 1;
+              setPerformanceSessionId((current) => current + 1);
+              setSelectedLearner(learner);
+              setSelectedLearnerProfile(null);
+              setPerformanceAction('viewMenu');
+              const profile = await loadLearnerProfile(learner.id);
+              if (!profile) {
+                Alert.alert('Learner profile unavailable', 'This learner record does not yet contain performance data.');
+                return;
+              }
+              setSelectedLearnerProfile(profile);
+            }}
+          />
+        );
       default:
         return (
           <>
@@ -806,52 +1010,41 @@ export default function NationalOfficeScreen() {
               ) : null}
             </SectionCard>
 
-            <SectionCard title="Affected learners" subtitle="Learners below the National latest-grade deviation threshold.">
-              {!nationalLearners.length ? (
-                <Text style={styles.empty}>No learners in this nation are below target by more than 80% in their last grade yet.</Text>
-              ) : !selectedRegionCode || !selectedCountyCode || !selectedSubCountyCode || !selectedSchoolCode || !selectedLearnerGrade ? (
-                <Text style={styles.empty}>Select a region, county, sub-county, school, and grade above to view learners.</Text>
-              ) : (
-                <ScrollView style={{ maxHeight: 720 }} contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator>
-                  {nationalLearners.filter((learner) => {
-                    const learnerGrade = String(learner.gradeLevel || learner.classCode || '').replace(/\D/g, '');
-                    return learner.regionCode === selectedRegionCode && learner.countyCode === selectedCountyCode && learner.subCountyCode === selectedSubCountyCode && learner.schoolCode === selectedSchoolCode && learnerGrade === selectedLearnerGrade;
-                  }).map((learner) => (
-                    <View key={learner.id} style={styles.learnerRow}>
-                      <Text style={styles.learnerText}>{learner.fullName} - {learnerCareerMap[learner.id] || 'Career target not set'}</Text>
-                      <Text style={styles.learnerMeta}>{nationalSchools.find((school) => school.code === learner.schoolCode)?.name || learner.schoolCode || 'School N/A'} • {learner.schoolCode || 'Registration code N/A'}</Text>
-                      <Text style={styles.learnerMeta}>Grade {learner.gradeLevel || learner.classCode || 'N/A'} • Class {learner.classCode || 'N/A'} • {learner.subCountyCode || 'N/A'} • {learner.countyCode || 'N/A'} • {learner.regionCode || 'N/A'}</Text>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={async () => {
-                          profileRequestRef.current += 1;
-                          setPerformanceSessionId((current) => current + 1);
-                          setSelectedLearner(learner);
-                          setSelectedLearnerProfile(null);
-                          setPerformanceAction('viewMenu');
-                          const profile = await loadLearnerProfile(learner.id);
-                          if (!profile) {
-                            Alert.alert('Learner profile unavailable', 'This learner record does not yet contain performance data.');
-                            return;
-                          }
-                          setSelectedLearnerProfile(profile);
-                        }}
-                      >
-                        <Text style={styles.actionButtonText}>View performance</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                  {!nationalLearners.some((learner) => {
-                    const learnerGrade = String(learner.gradeLevel || learner.classCode || '').replace(/\D/g, '');
-                    return learner.regionCode === selectedRegionCode && learner.countyCode === selectedCountyCode && learner.subCountyCode === selectedSubCountyCode && learner.schoolCode === selectedSchoolCode && learnerGrade === selectedLearnerGrade;
-                  }) ? <Text style={styles.empty}>No affected learners match this selection.</Text> : null}
-                </ScrollView>
-              )}
-            </SectionCard>
+            <NationalDeviationWatchContent
+              nationalLearners={nationalLearners}
+              learnerCareerMap={learnerCareerMap}
+              nationalRegions={nationalRegions}
+              nationalCounties={nationalCounties}
+              nationalSubCounties={nationalSubCounties}
+              nationalSchools={nationalSchools}
+              selectedRegionCode={selectedRegionCode}
+              selectedCountyCode={selectedCountyCode}
+              selectedSubCountyCode={selectedSubCountyCode}
+              selectedSchoolCode={selectedSchoolCode}
+              selectedLearnerGrade={selectedLearnerGrade}
+              setSelectedRegionCode={setSelectedRegionCode}
+              setSelectedCountyCode={setSelectedCountyCode}
+              setSelectedSubCountyCode={setSelectedSubCountyCode}
+              setSelectedSchoolCode={setSelectedSchoolCode}
+              setSelectedLearnerGrade={setSelectedLearnerGrade}
+              onViewPerformance={async (learner) => {
+                profileRequestRef.current += 1;
+                setPerformanceSessionId((current) => current + 1);
+                setSelectedLearner(learner);
+                setSelectedLearnerProfile(null);
+                setPerformanceAction('viewMenu');
+                const profile = await loadLearnerProfile(learner.id);
+                if (!profile) {
+                  Alert.alert('Learner profile unavailable', 'This learner record does not yet contain performance data.');
+                  return;
+                }
+                setSelectedLearnerProfile(profile);
+              }}
+            />
           </>
         );
     }
-  }, [activeScreen, nationalLearners, learnerCareerMap, client, nationalRegions, nationalCounties, nationalSubCounties, nationalSchools, selectedRegionCode, selectedCountyCode, selectedSubCountyCode, selectedSchoolCode, selectedLearnerGrade]);
+  }, [activeScreen, nationalLearners, learnerCareerMap, client, nationalRegions, nationalCounties, nationalSubCounties, nationalSchools, selectedRegionCode, selectedCountyCode, selectedSubCountyCode, selectedSchoolCode, selectedLearnerGrade, nationalCareerSummary, tertiaryInstitutions, tertiaryCourses, loadLearnerProfile]);
 
   return (
     <SafeAreaView style={styles.container}>

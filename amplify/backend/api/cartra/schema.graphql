@@ -383,6 +383,8 @@ type ObservationSchedule @model @auth(rules: [{ allow: groups, groups: ["teacher
 type LearnerDocumentResource @model @auth(rules: [{ allow: groups, groups: ["teacher", "principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer"], operations: [create, read, update, delete] }, { allow: private, operations: [create, read, update, delete] }]) {
   id: ID!
   learnerId: ID!
+  relatedSubjectId: ID
+  relatedSubjectName: String
   schoolCode: String
   classCode: String
   uploadedByUserId: ID!
@@ -391,9 +393,10 @@ type LearnerDocumentResource @model @auth(rules: [{ allow: groups, groups: ["tea
   resourceCategory: String
   title: String!
   description: String
-  s3Bucket: String!
-  fileKey: String!
-  fileName: String!
+  s3Bucket: String
+  fileKey: String
+  fileName: String
+  externalUrl: String
   fileType: String
   fileSizeBytes: Int
   checksum: String
@@ -667,7 +670,7 @@ type TertiaryCourse @model @auth(rules: [{ allow: groups, groups: ["tertiaryOffi
   courseCode: String
   courseName: String!
   pathwayId: ID
-  minimumClusterScore: Float
+  clusterRequirements: AWSJSON
   status: String!
   createdAt: AWSDateTime
   updatedAt: AWSDateTime

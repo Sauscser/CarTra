@@ -7,7 +7,13 @@ import { getLearnerProfile, listGrade12ResultSummaries, listLearnerDocumentResou
 import SectionCard from '../../components/shared/SectionCard';
 import ViewPerformance from '../../components/teacher/ViewPerformance';
 import LearnerComments from '../../components/shared/LearnerComments';
-import calculateHistoricalClusterSeries, { calculateCourseClusterDeviation, calculateDeviationPercentage, getSelectedCourseClusterRequirement } from '../../utils/cluster';
+import SubjectPerformanceGraph from '../../components/shared/SubjectPerformanceGraph';
+import SubjectEvidenceActions from '../../components/shared/SubjectEvidenceActions';
+import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
+import CourseSubjectPointsGraph from '../../components/shared/CourseSubjectPointsGraph';
+import LearnerClusterTrendGraph from '../../components/shared/LearnerClusterTrendGraph';
+import calculateHistoricalClusterSeries, { calculateDeviationPercentage, hasCourseSubjectPointRequirements } from '../../utils/cluster';
+import { resolveLearnerCareerTarget } from '../../utils/learnerCareer';
 import { CountySubCountySetupContent } from './CountySubCountySetupScreen';
 
 type CountyEntity = {
@@ -169,17 +175,7 @@ function CountyHomeContent() {
 
       const payload = result as { data?: { listLearnerProfiles?: { items?: Array<any> } } };
       const learnerRecord = payload.data?.listLearnerProfiles?.items?.[0];
-      const supportProfile = learnerRecord?.supportProfile;
-
-      if (!supportProfile) {
-        setLearnerCareerMap((current) => ({ ...current, [learnerId]: null }));
-        return;
-      }
-
-      const parsedProfile = typeof supportProfile === 'string' ? JSON.parse(supportProfile) : supportProfile;
-      const savedCareerTarget = typeof parsedProfile?.targetCareer === 'string' && parsedProfile.targetCareer.trim().length > 0
-        ? parsedProfile.targetCareer.trim()
-        : null;
+      const savedCareerTarget = await resolveLearnerCareerTarget(client, learnerRecord);
 
       setLearnerCareerMap((current) => ({ ...current, [learnerId]: savedCareerTarget }));
     } catch {
@@ -281,7 +277,6 @@ function CountyHomeContent() {
         selectedSubjects: Array.isArray(parsedSupportProfile?.selectedSubjects) ? parsedSupportProfile.selectedSubjects : (Array.isArray(item?.selectedSubjects) ? item.selectedSubjects : []),
         historicalSelectedSubjects: Array.isArray(parsedSupportProfile?.historicalSelectedSubjects) ? parsedSupportProfile.historicalSelectedSubjects : (Array.isArray(item?.historicalSelectedSubjects) ? item.historicalSelectedSubjects : []),
         targetCareer: parsedSupportProfile?.targetCareer ?? item?.targetCareer ?? null,
-        targetClusterPoints: parsedSupportProfile?.targetClusterPoints ?? item?.targetClusterPoints ?? 0,
       };
 
       if (requestId !== profileRequestRef.current) {
@@ -335,8 +330,7 @@ function CountyHomeContent() {
   const getHistoricalClusterSeries = (learner: any, profile: any) => {
     const effectiveProfile = profile || null;
     const subjects = (effectiveProfile && effectiveProfile.selectedSubjects) || [];
-    const currentCluster = typeof effectiveProfile?.targetClusterPoints !== 'undefined' ? Number(effectiveProfile.targetClusterPoints) : undefined;
-    return calculateHistoricalClusterSeries(learner, effectiveProfile, subjects, currentCluster);
+    return calculateHistoricalClusterSeries(learner, effectiveProfile, subjects);
   };
 
   const resolveSelectedSubjects = (profile: any) => {
@@ -448,8 +442,9 @@ function CountyHomeContent() {
     const axisGrades = [7, 8, 9, 10, 11, 12] as const;
     const majorStep = 10;
     const minorStep = 1;
-    const yMajorTicks = Array.from({ length: Math.floor(maxY / majorStep) + 1 }, (_, index) => index * majorStep);
-    const yMinorTicks = Array.from({ length: maxY + 1 }, (_, index) => index * minorStep);
+    const chartMaxY = Math.max(maxY ?? 100, ...series.flatMap((point) => [Number(point.value || 0), Number(point.target || 0)]).filter((value) => Number.isFinite(value)), 0, 1);
+    const yMajorTicks = Array.from({ length: Math.floor(chartMaxY / majorStep) + 1 }, (_, index) => index * majorStep);
+    const yMinorTicks = Array.from({ length: Math.floor(chartMaxY) + 1 }, (_, index) => index * minorStep);
 
     const gradeToX = (grade: number) => {
       const index = axisGrades.indexOf(grade as (typeof axisGrades)[number]);
@@ -459,9 +454,12 @@ function CountyHomeContent() {
 
     const axisLineY = chartHeight - paddingBottom;
     const valueToY = (value: number) => {
-      const safeValue = Math.max(0, Math.min(maxY, Number.isFinite(value) ? value : 0));
+      if (!Number.isFinite(value) || value < 0) {
+        return axisLineY;
+      }
+      const safeValue = Math.min(value, chartMaxY);
       const usableHeight = chartHeight - paddingTop - paddingBottom;
-      return axisLineY - (safeValue / Math.max(maxY, 1)) * usableHeight;
+      return axisLineY - (safeValue / Math.max(chartMaxY, 1)) * usableHeight;
     };
 
     const points = series
@@ -584,7 +582,7 @@ function CountyHomeContent() {
             <View key={`x-grid-${grade}`} style={{ position: 'absolute', top: paddingTop, bottom: paddingBottom, left: gradeToX(grade), width: 1, backgroundColor: '#dbeafe' }} />
           ))}
 
-          <View style={{ position: 'absolute', left: 0, top: paddingTop, width: chartWidth, height: chartHeight - paddingTop - paddingBottom }}>
+          <View style={{ position: 'absolute', left: 0, top: 0, width: chartWidth, height: chartHeight }}>
             {targetSegments.map((segment, segmentIndex) => drawPolyline(targetColor, segment, `target-${segmentIndex}`))}
             {valueSegments.map((segment, segmentIndex) => drawPolyline(valueColor, segment, `value-${segmentIndex}`))}
             {requirementSegments.map((segment, segmentIndex) => drawPolyline('#22c55e', segment, `requirement-${segmentIndex}`))}
@@ -609,42 +607,18 @@ function CountyHomeContent() {
 
           {performanceAction === 'viewMenu' ? (
             <ViewPerformance
+              learner={selectedLearner}
+              profile={selectedLearnerProfile || {}}
+              targetCareer={learnerCareerMap[selectedLearner.id]}
               onViewCluster={() => setPerformanceAction('viewCluster')}
               onViewSubjects={() => setPerformanceAction('viewSubjects')}
               onViewGuidance={() => setPerformanceAction('viewGuidance')}
-              onViewEPortfolio={() => setPerformanceAction('viewEPortfolio')}
             />
           ) : null}
 
           {performanceAction === 'viewCluster' ? (
             <ScrollView style={{ marginTop: 8 }}>
-              <Text style={{ fontWeight: '700', marginBottom: 8 }}>Cluster points trend</Text>
-              {(() => {
-                const clusterSeries = getHistoricalClusterSeries(selectedLearner, selectedLearnerProfile || {});
-                const valids = clusterSeries.filter((p: any) => Number.isFinite(Number(p.value)));
-                const maxValue = valids.length ? Math.max(100, ...valids.map((p: any) => Number(p.value || 0))) : 100;
-                const requirement = getSelectedCourseClusterRequirement(selectedLearnerProfile || {});
-                return (
-                  <>
-                    {renderLineChart(valids.map((point: any) => ({ label: point.label, value: Number(point.value), target: Number(point.target || 0) })), '#93c5fd', '#1d4ed8', maxValue, requirement)}
-                    <View style={{ marginTop: 8 }}>
-                      <Text style={{ fontWeight: '600' }}>Cluster points by year</Text>
-                      <Text style={{ color: '#0f172a', fontSize: 14 }}>{valids.length ? valids.map((point: any) => `Grade ${point.label}: ${point.value}`).join(' • ') : 'No valid cluster points recorded yet.'}</Text>
-                      {(() => {
-                        const requirement = getSelectedCourseClusterRequirement(selectedLearnerProfile || {});
-                        const deviations = requirement === null ? [] : valids
-                          .filter((point: any) => Number(point.label) >= 10 && Number(point.label) <= 12)
-                          .map((point: any) => ({ label: point.label, deviation: calculateCourseClusterDeviation(Number(point.value), requirement) }))
-                          .filter((point: any) => point.deviation !== null);
-                        return <>
-                          <Text style={{ fontWeight: '600', marginTop: 8 }}>Deviation from chosen course requirement</Text>
-                          <Text style={{ color: '#0f172a', fontSize: 14 }}>{requirement === null ? 'Course cluster points are not available.' : deviations.length ? `Required: ${requirement} points • ${deviations.map((item: any) => `Grade ${item.label}: ${item.deviation.points >= 0 ? '+' : ''}${item.deviation.points} points (${item.deviation.percentage >= 0 ? '+' : ''}${item.deviation.percentage}%)`).join(' • ')}` : 'No Grade 10–12 cluster points recorded yet.'}</Text>
-                        </>;
-                      })()}
-                    </View>
-                  </>
-                );
-              })()}
+              <LearnerClusterPerformanceGraph learner={selectedLearner} profile={selectedLearnerProfile || {}} targetCareer={learnerCareerMap[selectedLearner.id]} />
               <View style={{ marginTop: 12 }}>
                 <LearnerComments learnerId={selectedLearner.id} currentGrade={selectedLearner.gradeLevel} authorRoleOverride="county" />
               </View>
@@ -653,31 +627,13 @@ function CountyHomeContent() {
 
           {performanceAction === 'viewSubjects' ? (
             <ScrollView style={{ marginTop: 8 }}>
-              {(() => {
-                const subjectSeries = getHistoricalSubjectSeries(selectedLearner, selectedLearnerProfile || {});
-                if (!subjectSeries.length) return <Text style={{ color: '#6b7280' }}>No subject data is available yet.</Text>;
-
-                const allSeries = subjectSeries.flatMap((subject: any) => Array.isArray(subject.values) ? subject.values : []).filter((point: any) => Number.isFinite(Number(point?.value)) && Number.isFinite(Number(point?.target)) && Number(point.target) > 0);
-                const maxValue = allSeries.length ? Math.max(100, ...allSeries.map((point: any) => Math.max(Number(point.value || 0), Number(point.target || 0)))) : 100;
-
-                return subjectSeries.map((subject: any, index: number) => {
-                  const visibleValues = (subject.values || []).map((point: any) => ({ label: point.label, value: Number(point.value), target: Number(point.target) })).filter((point: any) => Number.isFinite(point.value) && Number.isFinite(point.target) && point.target > 0);
-                  const deviations = visibleValues.map((point: any) => ({ label: point.label, deviation: Number(Math.round((calculateDeviationPercentage(point.value, point.target) || 0) * 100) / 100) }));
-                  const averageDeviation = deviations.length ? Math.round(deviations.reduce((sum: number, item: any) => sum + Number(item.deviation || 0), 0) / deviations.length) : null;
-
-                  return (
-                    <View key={`${subject.label}-${index}`} style={{ marginBottom: 12 }}>
-                      <Text style={{ fontWeight: '700', marginBottom: 6 }}>{subject.label}</Text>
-                      {visibleValues.length > 0 ? renderLineChart(visibleValues, '#bfdbfe', '#2563eb', maxValue) : <Text style={{ color: '#0f172a', fontSize: 14 }}>No valid marks or targets to plot yet.</Text>}
-                      <View style={{ marginTop: 8 }}>
-                        <Text style={{ fontWeight: '600' }}>Annual deviation</Text>
-                        {deviations.length > 0 ? <Text style={{ color: '#0f172a', fontSize: 14 }}>{deviations.map((item: any) => `Grade ${item.label}: ${item.deviation}%`).join(' • ')}</Text> : <Text style={{ color: '#0f172a', fontSize: 14 }}>No deviation recorded.</Text>}
-                        <Text style={{ color: '#0f172a', fontSize: 14, marginTop: 4 }}>Average deviation: {averageDeviation === null ? 'N/A' : `${averageDeviation}%`}</Text>
-                      </View>
-                    </View>
-                  );
-                });
-              })()}
+              <SubjectPerformanceGraph
+                learner={selectedLearner}
+                profile={selectedLearnerProfile || {}}
+                renderSubjectActions={(subject) => (
+                  <SubjectEvidenceActions learnerId={selectedLearner.id} subjectId={subject.id} subjectName={subject.label} />
+                )}
+              />
             </ScrollView>
           ) : null}
 
@@ -803,7 +759,6 @@ function CountyHomeContent() {
           selectedSubjects: Array.isArray(supportProfile?.selectedSubjects) ? supportProfile.selectedSubjects : (Array.isArray(learner?.selectedSubjects) ? learner.selectedSubjects : []),
           historicalSelectedSubjects: Array.isArray(supportProfile?.historicalSelectedSubjects) ? supportProfile.historicalSelectedSubjects : (Array.isArray(learner?.historicalSelectedSubjects) ? learner.historicalSelectedSubjects : []),
           targetCareer: supportProfile?.targetCareer ?? learner?.targetCareer ?? null,
-          targetClusterPoints: supportProfile?.targetClusterPoints ?? learner?.targetClusterPoints ?? 0,
         };
 
         const lastAssessment = getLatestClusterAssessment(learner, normalizedProfile);
@@ -970,7 +925,7 @@ function CountyHomeContent() {
                     Learner: {summary.learnerId || 'Unknown'} • School: {summary.schoolCode || 'N/A'} • Grade: {summary.gradeLevel || '12'}
                   </Text>
                   <Text style={{ color: '#374151', fontSize: 12, marginTop: 4 }}>
-                    Aggregate: {summary.finalAggregatePoints ?? 'N/A'} • Required: {summary.requiredAggregatePoints ?? 'N/A'} • Gap: {summary.aggregateGap ?? 'N/A'}
+                    Course score: {summary.finalAggregatePoints ?? 'N/A'}
                   </Text>
                   <Text style={{ color: '#374151', fontSize: 12, marginTop: 4 }}>
                     Status: {summary.resultStatus || 'not_assessed'} • Placement: {summary.placementStatus || 'not_configured'}

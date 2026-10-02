@@ -4,8 +4,9 @@ import { generateClient } from 'aws-amplify/api';
 import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth';
 import PrimaryTextInput from '../../components/forms/PrimaryTextInput';
 import SectionCard from '../../components/shared/SectionCard';
+import { getCbeAchievementLevel, getCourseRequirementGroups, hasCompleteCourseSubjectRequirements, parseCourseClusterRequirements } from '../../utils/cluster';
 import { createTertiaryCourse, createTertiaryInstitutionProfile } from '../../graphql/mutations';
-import { listTertiaryCourses, listTertiaryInstitutionProfiles, listUsers } from '../../graphql/queries';
+import { listCoreSubjects, listSubjects, listSupportSubjects, listTertiaryCourses, listTertiaryInstitutionProfiles, listUsers } from '../../graphql/queries';
 import { RoleGroup } from '../../types/auth';
 
 type TertiaryInstitution = {
@@ -22,9 +23,30 @@ type TertiaryCourse = {
   institutionId: string;
   courseCode: string;
   courseName: string;
-  minimumClusterScore?: number | null;
+  clusterRequirements?: { version: 3; pointScale: 'CBE_8'; subjectSequence: Array<{ subjectId: string; operator: 'AND' | 'OR'; minimumPoints?: number }> } | null;
   status?: string | null;
 };
+
+type CatalogSubject = {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+};
+
+type ClusterRequirementSequence = {
+  version: 3;
+  pointScale: 'CBE_8';
+  subjectSequence: Array<{ subjectId: string; operator: 'AND' | 'OR'; minimumPoints?: number }>;
+};
+
+const SUBJECT_POINT_OPTIONS = Array.from({ length: 8 }, (_, index) => 8 - index);
+
+function parseClusterRequirements(value: unknown): ClusterRequirementSequence | null {
+  const parsed = parseCourseClusterRequirements(value);
+  if (!parsed?.subjectSequence?.length) return null;
+  return { version: 3, pointScale: 'CBE_8', subjectSequence: parsed.subjectSequence };
+}
 
 export default function TertiaryHomeScreen() {
   const client = useMemo(() => generateClient(), []);
@@ -41,9 +63,29 @@ export default function TertiaryHomeScreen() {
   const [countyCode, setCountyCode] = useState('');
   const [courseCode, setCourseCode] = useState('');
   const [courseName, setCourseName] = useState('');
-  const [minimumClusterScore, setMinimumClusterScore] = useState('');
+  const [catalogSubjects, setCatalogSubjects] = useState<CatalogSubject[]>([]);
+  const [selectedSubjectSequence, setSelectedSubjectSequence] = useState<Array<{ subjectId: string; operator: 'AND' | 'OR'; minimumPoints?: number }>>([]);
+  const [subjectSearch, setSubjectSearch] = useState('');
   const [institutionRecord, setInstitutionRecord] = useState<TertiaryInstitution | null>(null);
   const [courses, setCourses] = useState<TertiaryCourse[]>([]);
+  const selectedGroupCount = useMemo(
+    () => getCourseRequirementGroups({ version: 3, pointScale: 'CBE_8', subjectSequence: selectedSubjectSequence }).length,
+    [selectedSubjectSequence],
+  );
+  const canAddSelectedSubject = selectedGroupCount < 7 || selectedSubjectSequence[selectedSubjectSequence.length - 1]?.operator === 'OR';
+  const selectedSubjectIds = useMemo(() => new Set(selectedSubjectSequence.map((item) => item.subjectId)), [selectedSubjectSequence]);
+  const selectedCatalogSubjects = useMemo(
+    () => selectedSubjectSequence.map((item) => catalogSubjects.find((subject) => subject.id === item.subjectId)).filter((subject): subject is CatalogSubject => Boolean(subject)),
+    [catalogSubjects, selectedSubjectSequence],
+  );
+  const filteredCatalogSubjects = useMemo(() => {
+    const query = subjectSearch.trim().toLowerCase();
+    if (!query) return [];
+    return catalogSubjects
+      .filter((subject) => !selectedSubjectIds.has(subject.id))
+      .filter((subject) => `${subject.name} ${subject.code} ${subject.category}`.toLowerCase().includes(query))
+      .slice(0, 12);
+  }, [catalogSubjects, selectedSubjectIds, subjectSearch]);
 
   useEffect(() => {
     void loadTertiaryContext();
@@ -70,7 +112,7 @@ export default function TertiaryHomeScreen() {
         institutionId: course.institutionId,
         courseCode: course.courseCode,
         courseName: course.courseName,
-        minimumClusterScore: typeof course.minimumClusterScore === 'number' ? course.minimumClusterScore : Number(course.minimumClusterScore) || null,
+        clusterRequirements: parseClusterRequirements(course.clusterRequirements),
         status: course.status,
       }));
 
@@ -85,6 +127,19 @@ export default function TertiaryHomeScreen() {
     try {
       setLoading(true);
       setNotice('');
+
+      const [subjectResult, coreSubjectResult, supportSubjectResult] = await Promise.all([
+        client.graphql({ query: listSubjects, variables: { limit: 200 } }),
+        client.graphql({ query: listCoreSubjects, variables: { limit: 200 } }),
+        client.graphql({ query: listSupportSubjects, variables: { limit: 200 } }),
+      ]);
+      const subjectItems = (subjectResult as any).data?.listSubjects?.items || [];
+      const coreItems = (coreSubjectResult as any).data?.listCoreSubjects?.items || [];
+      const supportItems = (supportSubjectResult as any).data?.listSupportSubjects?.items || [];
+      const catalog = [...subjectItems.map((item: any) => ({ ...item, category: item.category || 'Elective' })), ...coreItems.map((item: any) => ({ ...item, category: 'Core' })), ...supportItems.map((item: any) => ({ ...item, category: 'Support' }))]
+        .filter((item: any) => item?.id && item?.code && item?.name)
+        .reduce((items: CatalogSubject[], item: any) => items.some((existing) => existing.id === item.id) ? items : [...items, { id: item.id, code: item.code, name: item.name, category: item.category }], []);
+      setCatalogSubjects(catalog.sort((left: CatalogSubject, right: CatalogSubject) => left.name.localeCompare(right.name)));
 
       const session = await fetchAuthSession();
       const idTokenPayload = session.tokens?.idToken?.payload as { email?: string; name?: string; given_name?: string; family_name?: string } | undefined;
@@ -280,9 +335,16 @@ export default function TertiaryHomeScreen() {
       return;
     }
 
-    const numericCluster = Number(minimumClusterScore);
-    if (!Number.isFinite(numericCluster) || numericCluster < 0) {
-      Alert.alert('Cluster score required', 'Please enter a valid minimum cluster score for this course.');
+    if (selectedSubjectSequence.length === 0) {
+      Alert.alert('Cluster subjects required', 'Select at least one required subject or alternative subject for this course.');
+      return;
+    }
+    if (selectedGroupCount > 7) {
+      Alert.alert('Too many cluster groups', 'A course can have up to seven required subject groups because the formula uses the seven best subjects. Use OR for alternatives within a group.');
+      return;
+    }
+    if (selectedSubjectSequence.some((item) => !Number.isInteger(item.minimumPoints) || Number(item.minimumPoints) < 1 || Number(item.minimumPoints) > 8)) {
+      Alert.alert('Subject points required', 'Choose the minimum points required for every selected subject.');
       return;
     }
 
@@ -296,7 +358,7 @@ export default function TertiaryHomeScreen() {
           courseCode: courseCode.trim(),
           courseName: courseName.trim(),
           pathwayId: null,
-          minimumClusterScore: numericCluster,
+          clusterRequirements: JSON.stringify({ version: 3, pointScale: 'CBE_8', subjectSequence: selectedSubjectSequence }),
           status: 'active',
         },
       };
@@ -312,7 +374,8 @@ export default function TertiaryHomeScreen() {
 
       setCourseCode('');
       setCourseName('');
-      setMinimumClusterScore('');
+      setSelectedSubjectSequence([]);
+      setSubjectSearch('');
 
       if (createdCourse) {
         setCourses((current) => [
@@ -321,7 +384,7 @@ export default function TertiaryHomeScreen() {
             institutionId: createdCourse.institutionId,
             courseCode: createdCourse.courseCode,
             courseName: createdCourse.courseName,
-            minimumClusterScore: createdCourse.minimumClusterScore ?? null,
+            clusterRequirements: parseClusterRequirements(createdCourse.clusterRequirements) || parseClusterRequirements(payload.input.clusterRequirements),
             status: createdCourse.status,
           },
           ...current,
@@ -338,7 +401,6 @@ export default function TertiaryHomeScreen() {
         institutionId: institutionRecord?.id,
         courseCode: courseCode.trim(),
         courseName: courseName.trim(),
-        minimumClusterScore: Number(minimumClusterScore),
         currentUserRole,
         currentUserId,
       });
@@ -402,10 +464,92 @@ export default function TertiaryHomeScreen() {
           </SectionCard>
         ) : null}
 
-        <SectionCard title="Programme / course requirements" subtitle="Once the institution has been registered, the admin can add the courses it offers and their minimum cluster requirements.">
+        <SectionCard title="Programme / course requirements" subtitle="Set the minimum subject points a learner needs for each course.">
           <PrimaryTextInput value={courseCode} onChangeText={setCourseCode} placeholder="Course code" autoCapitalize="characters" />
           <PrimaryTextInput value={courseName} onChangeText={setCourseName} placeholder="Course name" />
-          <PrimaryTextInput value={minimumClusterScore} onChangeText={setMinimumClusterScore} placeholder="Minimum cluster score (e.g. 46.5)" keyboardType="decimal-pad" />
+
+          <Text style={styles.ruleLabel}>Cluster subject rule</Text>
+          <Text style={styles.ruleHelp}>Select up to seven cluster groups and set each minimum on the CBE 1–8 scale: EE1=8, EE2=7, ME1=6, ME2=5, AE1=4, AE2=3, BE1=2, BE2=1. Each row’s AND/OR buttons control how it connects to the next subject. AND requires both; OR makes alternatives in one group, where the best-performing subject counts. Groups: {selectedGroupCount}/7.</Text>
+          {selectedCatalogSubjects.map((subject) => {
+            const sequenceItem = selectedSubjectSequence.find((item) => item.subjectId === subject.id);
+            const isAlternative = sequenceItem?.operator === 'OR';
+            return (
+              <View key={subject.id} style={styles.selectedSubjectCard}>
+                <View style={styles.selectedSubjectRow}>
+                  <View style={styles.selectedSubjectText}>
+                    <Text style={styles.catalogSubject}>{subject.name} ({subject.code})</Text>
+                    <Text style={styles.catalogCategory}>{subject.category}</Text>
+                  </View>
+                  <View style={styles.ruleActions}>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      style={[styles.ruleButton, !isAlternative && styles.ruleButtonActive]}
+                      onPress={() => setSelectedSubjectSequence((current) => current.map((item) => item.subjectId === subject.id ? { ...item, operator: 'AND' } : item))}
+                    >
+                      <Text style={styles.ruleButtonText}>AND</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      style={[styles.ruleButton, isAlternative && styles.ruleButtonAlternative]}
+                      onPress={() => setSelectedSubjectSequence((current) => current.map((item) => item.subjectId === subject.id ? { ...item, operator: 'OR' } : item))}
+                    >
+                      <Text style={styles.ruleButtonText}>OR</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      style={styles.removeSubjectButton}
+                      onPress={() => setSelectedSubjectSequence((current) => current.filter((item) => item.subjectId !== subject.id))}
+                    >
+                      <Text style={styles.removeSubjectText}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={styles.pointsRequirement}>
+                  <Text style={styles.pointsRequirementLabel}>Minimum points required</Text>
+                  <View style={styles.pointsOptions}>
+                    {SUBJECT_POINT_OPTIONS.map((points) => (
+                      <TouchableOpacity
+                        key={points}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: sequenceItem?.minimumPoints === points }}
+                        style={[styles.pointsOption, sequenceItem?.minimumPoints === points && styles.pointsOptionSelected]}
+                        onPress={() => setSelectedSubjectSequence((current) => current.map((item) => item.subjectId === subject.id ? { ...item, minimumPoints: points } : item))}
+                      >
+                        <Text style={[styles.pointsOptionText, sequenceItem?.minimumPoints === points && styles.pointsOptionTextSelected]}>{points} {getCbeAchievementLevel(points)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+            );
+          })}
+          <PrimaryTextInput
+            value={subjectSearch}
+            onChangeText={setSubjectSearch}
+            placeholder="Type a subject name or code"
+            autoCapitalize="words"
+          />
+          {filteredCatalogSubjects.length > 0 ? (
+            <View style={styles.searchResults}>
+              {filteredCatalogSubjects.map((subject) => (
+                <TouchableOpacity
+                  key={subject.id}
+                  style={styles.searchResultRow}
+                  disabled={!canAddSelectedSubject}
+                  onPress={() => {
+                    setSelectedSubjectSequence((current) => [...current, { subjectId: subject.id, operator: 'AND' }]);
+                    setSubjectSearch('');
+                  }}
+                >
+                  <Text style={styles.catalogSubject}>{subject.name} ({subject.code})</Text>
+                  <Text style={styles.catalogCategory}>{subject.category}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : subjectSearch.trim() ? (
+            <Text style={styles.noSearchResults}>No National-catalog subject matches that search.</Text>
+          ) : null}
+          <Text style={styles.ruleSummary}>{selectedSubjectSequence.length > 0 ? selectedSubjectSequence.map((item, index) => `${index > 0 ? (selectedSubjectSequence[index - 1].operator === 'OR' ? ' / ' : ', ') : ''}${catalogSubjects.find((subject) => subject.id === item.subjectId)?.name || 'Unknown subject'} (${item.minimumPoints ?? '?'} ${Number.isInteger(item.minimumPoints) ? getCbeAchievementLevel(Number(item.minimumPoints)) : 'CBE pts'})`).join('') : 'No subjects selected yet.'}</Text>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={handleCreateCourse} disabled={savingCourse || !institutionRecord?.id}>
             <Text style={styles.primaryButtonText}>{savingCourse ? 'Saving course...' : 'Add course requirement'}</Text>
@@ -419,7 +563,10 @@ export default function TertiaryHomeScreen() {
                 <View key={course.id} style={styles.courseItem}>
                   <Text style={styles.courseName}>{course.courseName}</Text>
                   <Text style={styles.courseCode}>{course.courseCode}</Text>
-                  <Text style={styles.courseScore}>Minimum cluster score: {course.minimumClusterScore ?? 'Not set'}</Text>
+                  {hasCompleteCourseSubjectRequirements(course.clusterRequirements) ? <Text style={styles.courseScore}>CBE subjects: {(() => {
+                    const sequence = course.clusterRequirements?.subjectSequence || [];
+                    return sequence.length ? sequence.map((item, index) => `${index > 0 ? (sequence[index - 1].operator === 'OR' ? ' / ' : ', ') : ''}${catalogSubjects.find((subject) => subject.id === item.subjectId)?.name || 'Unknown subject'} (${item.minimumPoints ?? '?'} ${Number.isInteger(item.minimumPoints) ? getCbeAchievementLevel(Number(item.minimumPoints)) : 'CBE pts'})`).join('') : 'Not configured';
+                  })()}</Text> : <Text style={styles.courseScore}>Not assignable: CBE subject groups or minimum points are missing.</Text>}
                 </View>
               ))}
             </View>
@@ -564,6 +711,149 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     color: '#0f172a',
     padding: 12,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  ruleLabel: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 16,
+  },
+  ruleHelp: {
+    color: '#475569',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  catalogList: {
+    marginTop: 10,
+    gap: 8,
+  },
+  selectedSubjectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectedSubjectCard: {
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: '#eff6ff',
+    marginTop: 8,
+  },
+  selectedSubjectText: {
+    flex: 1,
+  },
+  catalogRow: {
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: '#f8fafc',
+  },
+  catalogSubject: {
+    color: '#111827',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  catalogCategory: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  ruleActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 0,
+  },
+  pointsRequirement: {
+    marginTop: 10,
+  },
+  pointsRequirementLabel: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  pointsOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  pointsOption: {
+    width: 58,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#94a3b8',
+    borderRadius: 6,
+    backgroundColor: '#ffffff',
+  },
+  pointsOptionSelected: {
+    borderColor: '#1d4ed8',
+    backgroundColor: '#1d4ed8',
+  },
+  pointsOptionText: {
+    color: '#1e293b',
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  pointsOptionTextSelected: {
+    color: '#ffffff',
+  },
+  ruleButton: {
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  ruleButtonActive: {
+    backgroundColor: '#dbeafe',
+  },
+  ruleButtonAlternative: {
+    backgroundColor: '#dcfce7',
+    borderColor: '#86efac',
+  },
+  ruleButtonText: {
+    color: '#1e3a8a',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  removeSubjectButton: {
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  removeSubjectText: {
+    color: '#b91c1c',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  searchResults: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    marginTop: 4,
+    backgroundColor: '#ffffff',
+  },
+  searchResultRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    padding: 10,
+  },
+  noSearchResults: {
+    color: '#64748b',
+    fontSize: 13,
+    marginTop: 8,
+  },
+  ruleSummary: {
+    color: '#0f172a',
+    fontSize: 13,
     fontWeight: '600',
     marginTop: 8,
   },

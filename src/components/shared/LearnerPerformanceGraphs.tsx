@@ -1,9 +1,11 @@
 import React from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
-import calculateHistoricalClusterSeries, { calculateCourseClusterDeviation, calculateDeviationPercentage, getSelectedCourseClusterRequirement } from '../../utils/cluster';
+import CourseSubjectPointsGraph from './CourseSubjectPointsGraph';
+import LearnerClusterTrendGraph from './LearnerClusterTrendGraph';
+import calculateHistoricalClusterSeries, { calculateDeviationPercentage, hasCourseSubjectPointRequirements } from '../../utils/cluster';
 
 type PerformancePoint = { label: string; value: number; target: number };
-type SubjectSeries = { label: string; values: PerformancePoint[] };
+type SubjectSeries = { label: string; values: PerformancePoint[]; missingGrades: number[] };
 
 type Props = {
   learner: any;
@@ -50,17 +52,19 @@ function getSubjectSeries(learner: any, profile: any): SubjectSeries[] {
   });
 
   return Array.from(subjectMap.values()).map((subject) => {
-    const values = gradeAxis.map((grade) => {
+    const allGradeValues = gradeAxis.map((grade) => {
       const entry = subject.history.find((item: any) => String(item?.label) === String(grade));
       const target = Number.isFinite(Number(entry?.target)) ? Number(entry.target) : grade === currentGrade ? subject.target : NaN;
       const value = Number.isFinite(Number(entry?.value)) ? Number(entry.value) : grade === currentGrade ? subject.achieved : NaN;
       return Number.isFinite(target) && target > 0 && Number.isFinite(value) ? { label: String(grade), value, target } : null;
-    }).filter((point): point is PerformancePoint => point !== null);
-    return values.length ? { label: subject.label, values } : null;
+    });
+    const values = allGradeValues.filter((point): point is PerformancePoint => point !== null);
+    const missingGrades: number[] = gradeAxis.filter((_, index) => allGradeValues[index] === null);
+    return values.length ? { label: subject.label, values, missingGrades } : null;
   }).filter((subject): subject is SubjectSeries => subject !== null);
 }
 
-function LineChart({ series, requirement }: { series: PerformancePoint[]; requirement?: number | null }) {
+function LineChart({ series, requirement, maxY }: { series: PerformancePoint[]; requirement?: number | null; maxY?: number }) {
   const width = Math.max(300, Math.min(420, Dimensions.get('window').width - 72));
   const height = 440;
   const left = 34;
@@ -69,13 +73,12 @@ function LineChart({ series, requirement }: { series: PerformancePoint[]; requir
   const bottom = 42;
   const dataValues = series.flatMap((point) => [point.value, point.target]);
   const requirementValues = typeof requirement === 'number' && Number.isFinite(requirement) ? [requirement] : [];
-  const max = Math.max(100, ...dataValues, ...requirementValues, 0);
+  const max = Math.max(100, ...(Number.isFinite(maxY) ? [Number(maxY)] : []), ...dataValues, ...requirementValues, 0);
   const x = (label: string) => left + (gradeAxis.indexOf(Number(label) as (typeof gradeAxis)[number]) / 5) * (width - left - right);
-  const minimumVisibleValue = 1;
   const y = (value: number) => {
-    const safeValue = Number.isFinite(value) ? value : 0;
-    const plotValue = safeValue > 0 && safeValue < minimumVisibleValue ? minimumVisibleValue : safeValue;
-    return height - bottom - ((plotValue - 0) / (max || 1)) * (height - top - bottom);
+    if (!Number.isFinite(value) || value < 0) return height - bottom;
+    const plotValue = Math.min(value, max);
+    return height - bottom - (plotValue / max) * (height - top - bottom);
   };
   const draw = (color: string, key: 'value' | 'target') => series.slice(1).map((point, index) => {
     const previous = series[index];
@@ -120,24 +123,29 @@ function LineChart({ series, requirement }: { series: PerformancePoint[]; requir
 
 export default function LearnerPerformanceGraphs({ learner, profile, mode }: Props) {
   if (mode === 'cluster') {
+    if (hasCourseSubjectPointRequirements(profile)) {
+      return <CourseSubjectPointsGraph learner={learner} profile={profile} />;
+    }
     const series = calculateHistoricalClusterSeries(learner, profile || {});
     const valid = series.filter((point: any) => Number.isFinite(Number(point.value)));
     const averageCluster = valid.length ? Math.round(valid.reduce((sum: number, point: any) => sum + Number(point.value || 0), 0) / valid.length) : null;
     const averageDeviation = valid.length ? Math.round((valid.reduce((sum: number, point: any) => sum + Number(point.deviation || 0), 0) / valid.length) * 100) / 100 : null;
     const targetCareer = profile?.targetCareer || 'Not set';
-    const courseRequirement = getSelectedCourseClusterRequirement(profile);
-    const courseDeviations = courseRequirement === null
-      ? []
-      : valid
-        .filter((point: any) => Number(point.label) >= 10 && Number(point.label) <= 12)
-        .map((point: any) => ({ label: point.label, deviation: calculateCourseClusterDeviation(Number(point.value), courseRequirement) }))
-        .filter((point: any) => point.deviation !== null);
-    return <View><Text style={styles.heading}>Cluster points trend</Text><Text style={styles.summary}>Target career: {targetCareer}</Text>{valid.length ? <LineChart series={valid.map((point: any) => ({ label: point.label, value: Number(point.value), target: Number(point.target) }))} requirement={courseRequirement} /> : <Text style={styles.empty}>No valid cluster points recorded yet.</Text>}<Text style={styles.sectionTitle}>Cluster points by year</Text><Text style={styles.summary}>{valid.length ? valid.map((point: any) => `Grade ${point.label}: ${point.value}`).join(' • ') : 'No valid cluster points recorded yet.'}</Text><Text style={styles.summary}>Average cluster points: {averageCluster === null ? 'N/A' : averageCluster}</Text><Text style={styles.summary}>Average deviation: {averageDeviation === null ? 'N/A' : `${averageDeviation}%`}</Text><Text style={styles.sectionTitle}>Deviation from chosen course requirement</Text><Text style={styles.summary}>{courseRequirement === null ? 'Course cluster points are not available.' : courseDeviations.length ? `Required: ${courseRequirement} points • ${courseDeviations.map((item: any) => `Grade ${item.label}: ${item.deviation.points >= 0 ? '+' : ''}${item.deviation.points} points (${item.deviation.percentage >= 0 ? '+' : ''}${item.deviation.percentage}%)`).join(' • ')}` : 'No Grade 10–12 cluster points recorded yet.'}</Text></View>;
+    return (
+      <View>
+        <LearnerClusterTrendGraph learner={learner} profile={profile} />
+        <Text style={styles.summary}>Target career: {targetCareer}</Text>
+        <Text style={styles.sectionTitle}>Overall cluster points by year</Text>
+        <Text style={styles.summary}>{valid.length ? valid.map((point: any) => `Grade ${point.label}: ${point.value}`).join(' • ') : 'No valid cluster data recorded yet.'}</Text>
+        <Text style={styles.summary}>Average overall cluster points: {averageCluster === null ? 'N/A' : averageCluster}</Text>
+        <Text style={styles.summary}>Average deviation: {averageDeviation === null ? 'N/A' : `${averageDeviation}%`}</Text>
+      </View>
+    );
   }
 
   const subjects = getSubjectSeries(learner, profile);
   if (!subjects.length) return <Text style={styles.empty}>No subject data is available yet.</Text>;
-  return <View><Text style={styles.heading}>Subject performance</Text>{subjects.map((subject, index) => { const deviations = subject.values.map((point) => ({ label: point.label, value: Math.round((calculateDeviationPercentage(point.value, point.target) || 0) * 100) / 100 })); const average = Math.round((deviations.reduce((sum, item) => sum + item.value, 0) / deviations.length) * 100) / 100; return <View key={`${subject.label}-${index}`} style={styles.subject}><Text style={styles.subjectTitle}>{subject.label}</Text><LineChart series={subject.values} /><Text style={styles.sectionTitle}>Annual deviation</Text><Text style={styles.summary}>{deviations.map((item) => `Grade ${item.label}: ${item.value}%`).join(' • ')}</Text><Text style={styles.summary}>Average deviation: {average}%</Text></View>; })}</View>;
+  return <View><Text style={styles.heading}>Subject performance</Text>{subjects.map((subject, index) => { const deviations = subject.values.map((point) => ({ label: point.label, value: Math.round((calculateDeviationPercentage(point.value, point.target) || 0) * 100) / 100 })); const average = Math.round((deviations.reduce((sum, item) => sum + item.value, 0) / deviations.length) * 100) / 100; return <View key={`${subject.label}-${index}`} style={styles.subject}><Text style={styles.subjectTitle}>{subject.label}</Text><LineChart series={subject.values} /><Text style={styles.missing}>Missing subject data for Grades {subject.missingGrades.join(', ') || 'none'}{subject.missingGrades.length ? '; missing grades are not plotted.' : '.'}</Text><Text style={styles.sectionTitle}>Annual deviation</Text><Text style={styles.summary}>{deviations.map((item) => `Grade ${item.label}: ${item.value}%`).join(' • ')}</Text><Text style={styles.summary}>Average deviation: {average}%</Text></View>; })}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -156,4 +164,5 @@ const styles = StyleSheet.create({
   legendNational: { fontSize: 10, color: '#16a34a' },
   summary: { color: '#0f172a', fontSize: 14, marginTop: 4 },
   empty: { color: '#6b7280', fontSize: 14 },
+  missing: { color: '#92400e', fontSize: 12, lineHeight: 17, marginTop: 4 },
 });

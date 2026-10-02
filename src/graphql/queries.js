@@ -1242,6 +1242,8 @@ export const getLearnerDocumentResource = /* GraphQL */ `
     getLearnerDocumentResource(id: $id) {
       id
       learnerId
+      relatedSubjectId
+      relatedSubjectName
       schoolCode
       classCode
       uploadedByUserId
@@ -1253,6 +1255,7 @@ export const getLearnerDocumentResource = /* GraphQL */ `
       s3Bucket
       fileKey
       fileName
+      externalUrl
       fileType
       fileSizeBytes
       checksum
@@ -1283,6 +1286,8 @@ export const listLearnerDocumentResources = /* GraphQL */ `
       items {
         id
         learnerId
+        relatedSubjectId
+        relatedSubjectName
         schoolCode
         classCode
         uploadedByUserId
@@ -1294,6 +1299,7 @@ export const listLearnerDocumentResources = /* GraphQL */ `
         s3Bucket
         fileKey
         fileName
+        externalUrl
         fileType
         fileSizeBytes
         checksum
@@ -2107,7 +2113,7 @@ export const getTertiaryCourse = /* GraphQL */ `
       courseCode
       courseName
       pathwayId
-      minimumClusterScore
+      clusterRequirements
       status
       createdAt
       updatedAt
@@ -2128,7 +2134,7 @@ export const listTertiaryCourses = /* GraphQL */ `
         courseCode
         courseName
         pathwayId
-        minimumClusterScore
+        clusterRequirements
         status
         createdAt
         updatedAt

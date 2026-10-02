@@ -1598,6 +1598,8 @@ export const onCreateLearnerDocumentResource = /* GraphQL */ `
     onCreateLearnerDocumentResource(filter: $filter) {
       id
       learnerId
+      relatedSubjectId
+      relatedSubjectName
       schoolCode
       classCode
       uploadedByUserId
@@ -1609,6 +1611,7 @@ export const onCreateLearnerDocumentResource = /* GraphQL */ `
       s3Bucket
       fileKey
       fileName
+      externalUrl
       fileType
       fileSizeBytes
       checksum
@@ -1632,6 +1635,8 @@ export const onUpdateLearnerDocumentResource = /* GraphQL */ `
     onUpdateLearnerDocumentResource(filter: $filter) {
       id
       learnerId
+      relatedSubjectId
+      relatedSubjectName
       schoolCode
       classCode
       uploadedByUserId
@@ -1643,6 +1648,7 @@ export const onUpdateLearnerDocumentResource = /* GraphQL */ `
       s3Bucket
       fileKey
       fileName
+      externalUrl
       fileType
       fileSizeBytes
       checksum
@@ -1666,6 +1672,8 @@ export const onDeleteLearnerDocumentResource = /* GraphQL */ `
     onDeleteLearnerDocumentResource(filter: $filter) {
       id
       learnerId
+      relatedSubjectId
+      relatedSubjectName
       schoolCode
       classCode
       uploadedByUserId
@@ -1677,6 +1685,7 @@ export const onDeleteLearnerDocumentResource = /* GraphQL */ `
       s3Bucket
       fileKey
       fileName
+      externalUrl
       fileType
       fileSizeBytes
       checksum
@@ -2732,7 +2741,7 @@ export const onCreateTertiaryCourse = /* GraphQL */ `
       courseCode
       courseName
       pathwayId
-      minimumClusterScore
+      clusterRequirements
       status
       createdAt
       updatedAt
@@ -2750,7 +2759,7 @@ export const onUpdateTertiaryCourse = /* GraphQL */ `
       courseCode
       courseName
       pathwayId
-      minimumClusterScore
+      clusterRequirements
       status
       createdAt
       updatedAt
@@ -2768,7 +2777,7 @@ export const onDeleteTertiaryCourse = /* GraphQL */ `
       courseCode
       courseName
       pathwayId
-      minimumClusterScore
+      clusterRequirements
       status
       createdAt
       updatedAt

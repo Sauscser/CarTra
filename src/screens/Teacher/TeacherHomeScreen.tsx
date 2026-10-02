@@ -15,11 +15,15 @@ import {
 import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth';
 import { generateClient } from 'aws-amplify/api';
 import { getUrl, uploadData } from 'aws-amplify/storage';
+import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import awsmobile from '../../aws-exports';
 import ViewPerformance from '../../components/teacher/ViewPerformance';
 import SectionCard from '../../components/shared/SectionCard';
-import calculateHistoricalClusterSeries, { calculateClusterPointsFromSubjects, calculateCourseClusterDeviation, calculateDeviationPercentage, getSelectedCourseClusterRequirement } from '../../utils/cluster';
+import SubjectPerformanceGraph from '../../components/shared/SubjectPerformanceGraph';
+import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
+import calculateHistoricalClusterSeries, { calculateCourseClusterPoints, calculateDeviationPercentage, evaluateCourseSubjectPointRequirements, getCbeAchievementLevel, getCourseRequirementGroups, getMissingClusterGrades, hasCompleteCourseSubjectRequirements, hasCourseSubjectPointRequirements, parseCourseClusterRequirements } from '../../utils/cluster';
+import { parseLearnerSupportProfile, resolveLearnerCareerTarget } from '../../utils/learnerCareer';
 import {
   createAssessmentRubric,
   createGrade12ResultSummary,
@@ -83,8 +87,6 @@ type LearnerRecord = {
 
 type LearnerDetails = {
   targetCareer: string;
-  careerClusterPoints: string;
-  targetClusterPoints: string;
 };
 
 type SubjectCatalogItem = {
@@ -98,12 +100,15 @@ type SubjectCatalogItem = {
 type LearnerDocumentResourceRecord = {
   id: string;
   learnerId: string;
+  relatedSubjectId?: string | null;
+  relatedSubjectName?: string | null;
   title: string;
   description?: string | null;
   resourceType: string;
   resourceCategory?: string | null;
-  fileKey: string;
-  fileName: string;
+  fileKey?: string | null;
+  fileName?: string | null;
+  externalUrl?: string | null;
   fileType?: string | null;
   fileSizeBytes?: number | null;
   status: string;
@@ -148,10 +153,21 @@ export default function TeacherHomeScreen() {
   const [assessmentNumber, setAssessmentNumber] = useState('');
   const [gradeLevel, setGradeLevel] = useState('');
   const [gender, setGender] = useState('');
+  const selectAssignedClass = (classItem: AssignedClass | null) => {
+    setSelectedClassCode(classItem?.classCode || '');
+    if (!classItem) {
+      setGradeLevel('');
+      return;
+    }
+
+    const configuredGrade = String(classItem.gradeLevel || '').trim();
+    const grade = configuredGrade.match(/\d+/)?.[0]
+      || String(classItem.className || classItem.classCode || '').match(/\d+/)?.[0]
+      || configuredGrade;
+    setGradeLevel(grade);
+  };
   const [learnerDetails, setLearnerDetails] = useState<LearnerDetails>({
     targetCareer: '',
-    careerClusterPoints: '',
-    targetClusterPoints: '',
   });
   const [parentNationalId, setParentNationalId] = useState('');
   const [showLearnerDetails, setShowLearnerDetails] = useState(false);
@@ -168,6 +184,9 @@ export default function TeacherHomeScreen() {
     setPerformanceMarksInput('');
     setLearnerDocumentMap({});
     setLearnerGuidanceMap({});
+    setEvidenceViewer(null);
+    setVideoLinkModalVisible(false);
+    setVideoLinkSubject(null);
   };
   const [learnerSubjectsMap, setLearnerSubjectsMap] = useState<
     Record<string, Array<{ id: string; name: string; code?: string; category?: string | null; targetMarks?: number | null; marksScored?: number | null }>>
@@ -176,7 +195,7 @@ export default function TeacherHomeScreen() {
   const [learnerCareerMap, setLearnerCareerMap] = useState<Record<string, string | null>>({});
   const [performanceLearner, setPerformanceLearner] = useState<LearnerRecord | null>(null);
   const [activeGraphLearnerId, setActiveGraphLearnerId] = useState<string | null>(null);
-  const [performanceAction, setPerformanceAction] = useState<'menu' | 'viewMenu' | 'subject' | 'documents' | 'cluster' | 'rubric' | 'viewCluster' | 'viewSubjects' | 'viewGuidance' | 'viewEPortfolio' | null>(null);
+  const [performanceAction, setPerformanceAction] = useState<'menu' | 'viewMenu' | 'subject' | 'cluster' | 'rubric' | 'viewCluster' | 'viewSubjects' | 'viewGuidance' | 'viewEPortfolio' | null>(null);
   const [performanceSessionId, setPerformanceSessionId] = useState(0);
   const [selectedPerformanceSubject, setSelectedPerformanceSubject] = useState<{ id: string; name: string; code?: string; category?: string | null; targetMarks?: number | null; marksScored?: number | null } | null>(null);
   const [performanceMarksInput, setPerformanceMarksInput] = useState('');
@@ -194,7 +213,7 @@ export default function TeacherHomeScreen() {
     institutionId: string | null;
     institutionName: string | null;
     courseName: string;
-    minimumClusterScore?: number | null;
+    clusterRequirements?: { version: 1 | 2 | 3; pointScale?: 'CBE_8'; requiredSubjectIds?: string[]; alternativeSubjectIds?: string[]; subjectSequence?: Array<{ subjectId: string; subjectName?: string; operator: 'AND' | 'OR'; minimumPoints?: number }> } | null;
   }>>([]);
   const [careerOptionsLoading, setCareerOptionsLoading] = useState(false);
   const [selectedCareerId, setSelectedCareerId] = useState<string | null>(null);
@@ -205,7 +224,7 @@ export default function TeacherHomeScreen() {
     return careerOptions.filter((career) => {
       const institutionMatches = !institutionQuery || (career.institutionName || '').toLowerCase().includes(institutionQuery);
       const courseMatches = !courseQuery || career.courseName.toLowerCase().includes(courseQuery);
-      return institutionMatches && courseMatches;
+      return institutionMatches && courseMatches && hasCompleteCourseSubjectRequirements(career.clusterRequirements);
     });
   }, [careerOptions, courseFilterInstitution, courseFilterCourseName]);
   const [promotingLearner, setPromotingLearner] = useState(false);
@@ -226,15 +245,21 @@ export default function TeacherHomeScreen() {
   const [calculatingClusterPoints, setCalculatingClusterPoints] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
   const [openingDocumentId, setOpeningDocumentId] = useState('');
-  const [documentTitleInput, setDocumentTitleInput] = useState('');
-  const [documentDescriptionInput, setDocumentDescriptionInput] = useState('');
   const [documentDebugMessage, setDocumentDebugMessage] = useState('');
+  const [videoLinkModalVisible, setVideoLinkModalVisible] = useState(false);
+  const [videoLinkSubject, setVideoLinkSubject] = useState<{ id: string; name: string } | null>(null);
+  const [videoLinkInput, setVideoLinkInput] = useState('');
+  const [videoTitleInput, setVideoTitleInput] = useState('');
+  const [savingVideoLink, setSavingVideoLink] = useState(false);
+  const [evidenceViewer, setEvidenceViewer] = useState<{ subjectId: string; subjectName: string; kind: 'document' | 'video' } | null>(null);
   const [subjectGroups, setSubjectGroups] = useState<Array<{ title: string; items: SubjectCatalogItem[] }>>([]);
   const [subjectGroupsLoading, setSubjectGroupsLoading] = useState(false);
   const [subjectSelectionStep, setSubjectSelectionStep] = useState<'category' | 'subjects' | 'details'>('category');
   const [selectedSubjectCategory, setSelectedSubjectCategory] = useState<'Junior Secondary' | 'Senior Secondary' | 'Vocational SNE' | ''>('');
   const [selectedSubjectCandidate, setSelectedSubjectCandidate] = useState<SubjectCatalogItem | null>(null);
+  const [subjectFilterQuery, setSubjectFilterQuery] = useState('');
   const [targetMarksInput, setTargetMarksInput] = useState('');
+  const [courseTargetMarkDrafts, setCourseTargetMarkDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void loadTeacherContext();
@@ -247,7 +272,7 @@ export default function TeacherHomeScreen() {
   const loadCareerOptions = async () => {
     try {
       setCareerOptionsLoading(true);
-      const [coursesResult, institutionsResult] = await Promise.all([
+      const [coursesResult, institutionsResult, subjectsResult, coreSubjectsResult, supportSubjectsResult] = await Promise.all([
         client.graphql({
           query: listTertiaryCourses,
           variables: { limit: 500 },
@@ -256,10 +281,21 @@ export default function TeacherHomeScreen() {
           query: listTertiaryInstitutionProfiles,
           variables: { limit: 500 },
         }),
+        client.graphql({ query: listSubjects, variables: { limit: 500 } }),
+        client.graphql({ query: listCoreSubjects, variables: { limit: 500 } }),
+        client.graphql({ query: listSupportSubjects, variables: { limit: 500 } }),
       ]);
 
       const coursePayload = coursesResult as { data?: { listTertiaryCourses?: { items?: Array<any> } } };
       const institutionPayload = institutionsResult as { data?: { listTertiaryInstitutionProfiles?: { items?: Array<any> } } };
+      const subjectNameById = [
+        ...((subjectsResult as any).data?.listSubjects?.items || []),
+        ...((coreSubjectsResult as any).data?.listCoreSubjects?.items || []),
+        ...((supportSubjectsResult as any).data?.listSupportSubjects?.items || []),
+      ].reduce((map: Record<string, string>, subject: any) => {
+        if (subject?.id) map[String(subject.id)] = String(subject.name || subject.code || subject.id);
+        return map;
+      }, {});
 
       const institutions = (institutionPayload.data?.listTertiaryInstitutionProfiles?.items || []).reduce((map: Record<string, string>, item: any) => {
         if (item?.id) {
@@ -278,7 +314,18 @@ export default function TeacherHomeScreen() {
         institutionId: item?.institutionId ? String(item.institutionId) : null,
         institutionName: item?.institutionId ? (institutions[String(item.institutionId)] || null) : null,
         courseName: String(item.courseName).trim(),
-        minimumClusterScore: typeof item.minimumClusterScore === 'number' ? item.minimumClusterScore : Number(item.minimumClusterScore) || null,
+        clusterRequirements: item.clusterRequirements ? (() => {
+          const parsed = typeof item.clusterRequirements === 'string' ? JSON.parse(item.clusterRequirements) : item.clusterRequirements;
+          const normalized = parseCourseClusterRequirements(parsed);
+          if (!normalized?.subjectSequence) return parsed;
+          return {
+            ...normalized,
+            subjectSequence: normalized.subjectSequence.map((requirement) => ({
+              ...requirement,
+              subjectName: subjectNameById[String(requirement.subjectId)] || String(requirement.subjectId),
+            })),
+          };
+        })() : null,
       }));
 
       setCareerOptions(mapped);
@@ -384,21 +431,30 @@ export default function TeacherHomeScreen() {
 
       const unique = assigned.filter(
         (item, index, array) => array.findIndex((candidate) => candidate.classCode === item.classCode) === index,
-      );
+      ).sort((left, right) => {
+        const gradeOf = (item: AssignedClass) => {
+          const gradeText = String(item.gradeLevel || item.classCode || item.className || '');
+          const grade = Number(gradeText.match(/\d+/)?.[0]);
+          return Number.isFinite(grade) ? grade : Number.POSITIVE_INFINITY;
+        };
+        const gradeDifference = gradeOf(left) - gradeOf(right);
+        if (gradeDifference !== 0) return gradeDifference;
+        return String(left.className || left.classCode || '').localeCompare(String(right.className || right.classCode || ''), undefined, { numeric: true });
+      });
 
       setAssignedClasses(unique);
 
       if (unique.length > 0) {
-        setSelectedClassCode(unique[0].classCode || '');
+        selectAssignedClass(unique[0]);
       } else {
-        setSelectedClassCode('');
+        selectAssignedClass(null);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load your teacher class data.';
       setNotice(message);
       setTeacherContext(null);
       setAssignedClasses([]);
-      setSelectedClassCode('');
+      selectAssignedClass(null);
     } finally {
       setLoading(false);
     }
@@ -470,18 +526,17 @@ export default function TeacherHomeScreen() {
       const payload = result as { data?: { listLearnerProfiles?: { items?: Array<any> } } };
       const learnerRecord = payload.data?.listLearnerProfiles?.items?.[0];
       const supportProfile = learnerRecord?.supportProfile;
+      const savedCareerTarget = await resolveLearnerCareerTarget(client, learnerRecord);
+      setLearnerCareerMap((current) => ({ ...current, [learnerId]: savedCareerTarget }));
+      const parsedProfile = parseLearnerSupportProfile(supportProfile);
 
-      if (!supportProfile) {
+      if (!parsedProfile) {
+        setLearnerProfileMap((current) => ({ ...current, [learnerId]: {} }));
         setLearnerSubjectsMap((current) => ({ ...current, [learnerId]: [] }));
         return;
       }
 
-      const parsedProfile = typeof supportProfile === 'string' ? JSON.parse(supportProfile) : supportProfile;
       const selectedSubjects = Array.isArray(parsedProfile?.selectedSubjects) ? parsedProfile.selectedSubjects : [];
-      const savedClusterPoints = Number(parsedProfile?.targetClusterPoints ?? 0);
-      const savedCareerTarget = typeof parsedProfile?.targetCareer === 'string' && parsedProfile.targetCareer.trim().length > 0
-        ? parsedProfile.targetCareer.trim()
-        : null;
 
       console.log('[DEBUG_SUPPORT_PROFILE]', JSON.stringify({
         learnerId,
@@ -491,7 +546,6 @@ export default function TeacherHomeScreen() {
         selectedSubjects: selectedSubjects.map((subject: any) => ({ name: subject?.name, targetMarks: subject?.targetMarks, marksScored: subject?.marksScored, history: Array.isArray(subject?.history) ? subject.history : [] })),
         historicalSelectedSubjects: Array.isArray(parsedProfile?.historicalSelectedSubjects) ? parsedProfile.historicalSelectedSubjects.map((subject: any) => ({ name: subject?.name, targetMarks: subject?.targetMarks, marksScored: subject?.marksScored, history: Array.isArray(subject?.history) ? subject.history : [] })) : [],
         targetCareer: savedCareerTarget,
-        targetClusterPoints: savedClusterPoints,
       }, null, 2));
 
       const mappedSubjects = selectedSubjects.map((item: any) => ({
@@ -505,11 +559,6 @@ export default function TeacherHomeScreen() {
 
       setLearnerProfileMap((current) => ({ ...current, [learnerId]: parsedProfile }));
       setLearnerSubjectsMap((current) => ({ ...current, [learnerId]: mappedSubjects }));
-      setLearnerCareerMap((current) => ({ ...current, [learnerId]: savedCareerTarget }));
-      setLearnerClusterPointsMap((current) => ({
-        ...current,
-        [learnerId]: Number.isFinite(savedClusterPoints) ? savedClusterPoints : 0,
-      }));
     } catch {
       setLearnerSubjectsMap((current) => ({ ...current, [learnerId]: [] }));
     }
@@ -537,16 +586,19 @@ export default function TeacherHomeScreen() {
 
       const payload = result as { data?: { listLearnerDocumentResources?: { items?: Array<any> } } };
       const items = (payload.data?.listLearnerDocumentResources?.items || [])
-        .filter((item: any) => item?.id && item?.learnerId && item?.fileKey)
+        .filter((item: any) => item?.id && item?.learnerId && (item?.fileKey || item?.externalUrl))
         .map((item: any) => ({
           id: item.id,
           learnerId: item.learnerId,
+          relatedSubjectId: item.relatedSubjectId || null,
+          relatedSubjectName: item.relatedSubjectName || null,
           title: item.title,
           description: item.description || null,
           resourceType: item.resourceType || 'document',
           resourceCategory: item.resourceCategory || null,
           fileKey: item.fileKey,
           fileName: item.fileName,
+          externalUrl: item.externalUrl || null,
           fileType: item.fileType || null,
           fileSizeBytes: typeof item.fileSizeBytes === 'number' ? item.fileSizeBytes : null,
           status: item.status || 'pending_review',
@@ -656,16 +708,19 @@ export default function TeacherHomeScreen() {
 
       const payload = result as { data?: { listLearnerDocumentResources?: { items?: Array<any> } } };
       const items = (payload.data?.listLearnerDocumentResources?.items || [])
-        .filter((item: any) => item?.id && item?.learnerId && item?.fileKey)
+        .filter((item: any) => item?.id && item?.learnerId && (item?.fileKey || item?.externalUrl))
         .map((item: any) => ({
           id: item.id,
           learnerId: item.learnerId,
+          relatedSubjectId: item.relatedSubjectId || null,
+          relatedSubjectName: item.relatedSubjectName || null,
           title: item.title,
           description: item.description || null,
           resourceType: item.resourceType || 'document',
           resourceCategory: item.resourceCategory || null,
           fileKey: item.fileKey,
           fileName: item.fileName,
+          externalUrl: item.externalUrl || null,
           fileType: item.fileType || null,
           fileSizeBytes: typeof item.fileSizeBytes === 'number' ? item.fileSizeBytes : null,
           status: item.status || 'pending_review',
@@ -704,7 +759,7 @@ export default function TeacherHomeScreen() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const formatDocumentDate = (value?: string | null) => {
+  const formatDocumentTimestamp = (value?: string | null) => {
     if (!value) {
       return 'Date unavailable';
     }
@@ -714,10 +769,11 @@ export default function TeacherHomeScreen() {
       return 'Date unavailable';
     }
 
-    return parsed.toLocaleDateString();
+    const pad = (part: number) => String(part).padStart(2, '0');
+    return `${parsed.getFullYear()}/${pad(parsed.getMonth() + 1)}/${pad(parsed.getDate())}/${pad(parsed.getHours())}/${pad(parsed.getMinutes())}/${pad(parsed.getSeconds())}`;
   };
 
-  const pickAndUploadLearnerDocument = async (learner: LearnerRecord) => {
+  const pickAndUploadLearnerDocument = async (learner: LearnerRecord, subject: { id: string; name: string }) => {
     if (!teacherContext) {
       setNotice('Teacher context is not ready for document upload.');
       return;
@@ -742,7 +798,7 @@ export default function TeacherHomeScreen() {
 
       const asset = picked.assets[0];
       setDocumentDebugMessage(`Selected ${asset.name}. Uploading to storage...`);
-      const uploadTitle = documentTitleInput.trim() || asset.name.replace(/\.[^.]+$/, '') || 'Learner document';
+      const uploadTitle = `${subject.name}: ${asset.name.replace(/\.[^.]+$/, '') || 'evidence'}`;
       const sanitizedName = asset.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const relativeKey = `eportfolio/${teacherContext.schoolCode}/${learner.id}/${Date.now()}-${sanitizedName}`;
       const fileKey = `protected/${relativeKey}`;
@@ -775,6 +831,8 @@ export default function TeacherHomeScreen() {
         variables: {
           input: {
             learnerId: learner.id,
+            relatedSubjectId: subject.id,
+            relatedSubjectName: subject.name,
             schoolCode: teacherContext.schoolCode,
             classCode: learner.classCode || selectedClassCode || null,
             uploadedByUserId: teacherContext.userId,
@@ -782,7 +840,7 @@ export default function TeacherHomeScreen() {
             resourceType: asset.mimeType?.startsWith('image/') ? 'image' : 'document',
             resourceCategory: 'e_portfolio',
             title: uploadTitle,
-            description: documentDescriptionInput.trim() || null,
+            description: null,
             s3Bucket: STORAGE_BUCKET,
             fileKey,
             fileName: asset.name,
@@ -798,6 +856,8 @@ export default function TeacherHomeScreen() {
             metadata: JSON.stringify({
               source: 'teacher_documents',
               resourceCategory: 'e_portfolio',
+              relatedSubjectId: subject.id,
+              relatedSubjectName: subject.name,
             }),
           },
         },
@@ -814,12 +874,15 @@ export default function TeacherHomeScreen() {
         const createdRecord: LearnerDocumentResourceRecord = {
           id: created.id,
           learnerId: created.learnerId,
+          relatedSubjectId: created.relatedSubjectId || subject.id,
+          relatedSubjectName: created.relatedSubjectName || subject.name,
           title: created.title,
           description: created.description || null,
           resourceType: created.resourceType || 'document',
           resourceCategory: created.resourceCategory || null,
           fileKey: created.fileKey,
           fileName: created.fileName,
+          externalUrl: created.externalUrl || null,
           fileType: created.fileType || null,
           fileSizeBytes: typeof created.fileSizeBytes === 'number' ? created.fileSizeBytes : null,
           status: created.status || 'pending_review',
@@ -835,11 +898,9 @@ export default function TeacherHomeScreen() {
         });
       }
 
-      setDocumentTitleInput('');
-      setDocumentDescriptionInput('');
       setDocumentDebugMessage('Metadata saved. Refreshing learner files...');
       await loadLearnerDocuments(learner.id);
-      setNotice(`${asset.name} was uploaded to e-portfolio for ${learner.fullName}.`);
+      setNotice(`${asset.name} was added as ${subject.name} evidence for ${learner.fullName}.`);
       setDocumentDebugMessage(`Upload successful: ${asset.name}`);
       console.log('[EPORTFOLIO_DEBUG] upload:success', JSON.stringify({ learnerId: learner.id, fileName: asset.name }));
     } catch (error) {
@@ -858,9 +919,105 @@ export default function TeacherHomeScreen() {
     }
   };
 
+  const confirmUploadForSubject = (learner: LearnerRecord, subject: { id: string; name: string }) => {
+    Alert.alert(
+      'Upload subject evidence',
+      `This adds a document to ${learner.fullName}'s e-files for ${subject.name}. The document will appear under this subject in performance view.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Choose document', onPress: () => void pickAndUploadLearnerDocument(learner, subject) },
+      ],
+    );
+  };
+
+  const openVideoLinkForm = (subject: { id: string; name: string }) => {
+    setVideoLinkSubject(subject);
+    setVideoTitleInput(`${subject.name} video`);
+    setVideoLinkInput('');
+    setVideoLinkModalVisible(true);
+  };
+
+  const saveYouTubeLink = async () => {
+    if (!teacherContext || !performanceLearner || !videoLinkSubject) return;
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(videoLinkInput.trim());
+    } catch {
+      Alert.alert('Invalid YouTube link', 'Enter a valid YouTube video URL.');
+      return;
+    }
+    const host = parsedUrl.hostname.toLowerCase().replace(/^www\./, '');
+    if (parsedUrl.protocol !== 'https:' || !['youtube.com', 'm.youtube.com', 'youtu.be'].includes(host)) {
+      Alert.alert('Invalid YouTube link', 'Use an HTTPS link from youtube.com or youtu.be.');
+      return;
+    }
+
+    try {
+      setSavingVideoLink(true);
+      const result = await client.graphql({
+        query: createLearnerDocumentResource,
+        variables: {
+          input: {
+            learnerId: performanceLearner.id,
+            relatedSubjectId: videoLinkSubject.id,
+            relatedSubjectName: videoLinkSubject.name,
+            schoolCode: teacherContext.schoolCode,
+            classCode: performanceLearner.classCode || selectedClassCode || null,
+            uploadedByUserId: teacherContext.userId,
+            uploadedByRole: 'teacher',
+            resourceType: 'video',
+            resourceCategory: 'e_portfolio',
+            title: videoTitleInput.trim() || `${videoLinkSubject.name} video`,
+            description: null,
+            externalUrl: parsedUrl.toString(),
+            isPublished: false,
+            status: 'pending_review',
+            metadata: JSON.stringify({ source: 'teacher_subject_video', resourceCategory: 'e_portfolio' }),
+          },
+        },
+      });
+      const created = (result as { data?: { createLearnerDocumentResource?: any } }).data?.createLearnerDocumentResource;
+      if (created?.id) {
+        const record: LearnerDocumentResourceRecord = {
+          id: created.id,
+          learnerId: created.learnerId,
+          relatedSubjectId: created.relatedSubjectId || videoLinkSubject.id,
+          relatedSubjectName: created.relatedSubjectName || videoLinkSubject.name,
+          title: created.title,
+          description: created.description || null,
+          resourceType: 'video',
+          resourceCategory: 'e_portfolio',
+          fileKey: null,
+          fileName: null,
+          externalUrl: created.externalUrl || parsedUrl.toString(),
+          fileType: null,
+          fileSizeBytes: null,
+          status: created.status || 'pending_review',
+          createdAt: created.createdAt || new Date().toISOString(),
+        };
+        setLearnerDocumentMap((current) => ({
+          ...current,
+          [performanceLearner.id]: [record, ...(current[performanceLearner.id] || []).filter((item) => item.id !== record.id)],
+        }));
+      }
+      setVideoLinkModalVisible(false);
+      setNotice(`YouTube link saved under ${videoLinkSubject.name}.`);
+    } catch (error) {
+      const graphqlError = error as { errors?: Array<{ message?: string }>; message?: string } | undefined;
+      Alert.alert('Could not save video', graphqlError?.errors?.[0]?.message || graphqlError?.message || 'Could not save this YouTube link.');
+    } finally {
+      setSavingVideoLink(false);
+    }
+  };
+
   const openLearnerDocument = async (resource: LearnerDocumentResourceRecord) => {
     try {
       setOpeningDocumentId(resource.id);
+      if (resource.externalUrl) {
+        await Linking.openURL(resource.externalUrl);
+        return;
+      }
+      if (!resource.fileKey) throw new Error('This resource has no document file attached.');
       console.log('[EPORTFOLIO_DEBUG] open:start', JSON.stringify({ id: resource.id, fileKey: resource.fileKey }));
       const signed = await getUrl({
         path: resource.fileKey,
@@ -889,8 +1046,216 @@ export default function TeacherHomeScreen() {
     setSubjectGroupsLoading(false);
     setSelectedSubjectCategory('');
     setSubjectSelectionStep('category');
+    setCourseTargetMarkDrafts({});
+    setSubjectFilterQuery('');
     setSubjectModalVisible(true);
-    await loadSelectedLearnerSubjects(learner.id);
+    if (Number(String(learner.gradeLevel || '').replace(/\D/g, '')) >= 10) {
+      await syncSeniorCourseSubjects(learner);
+    } else {
+      await loadSelectedLearnerSubjects(learner.id);
+    }
+  };
+
+  const syncSeniorCourseSubjects = async (learner: LearnerRecord) => {
+    setSubjectGroupsLoading(true);
+    try {
+      const learnerResult = await client.graphql({
+        query: listLearnerProfiles,
+        variables: { filter: { id: { eq: learner.id } }, limit: 1 },
+      });
+      const learnerRecord = (learnerResult as any).data?.listLearnerProfiles?.items?.[0];
+      if (!learnerRecord?.id) throw new Error('Learner profile could not be loaded.');
+
+      const currentProfile = parseLearnerSupportProfile(learnerRecord.supportProfile) || {};
+      const careerId = String(currentProfile.targetCareerId || currentProfile.selectedCareerId || learnerRecord.selectedCareerId || '');
+      const careerName = String(currentProfile.targetCareer || currentProfile.targetCareerName || '').trim().toLowerCase();
+      const selectedCareer = careerOptions.find((career) =>
+        (careerId && career.id === careerId) || (careerName && career.courseName.trim().toLowerCase() === careerName),
+      );
+      const requirements = parseCourseClusterRequirements(selectedCareer?.clusterRequirements || currentProfile.clusterRequirements);
+      const requiredItems = requirements?.subjectSequence || [];
+      if (requiredItems.length === 0) {
+        await loadSelectedLearnerSubjects(learner.id);
+        setNotice(`${learner.fullName} has no configured course subject requirements to prefill.`);
+        return;
+      }
+
+      const [coreResult, supportResult, electiveResult] = await Promise.all([
+        client.graphql({ query: listCoreSubjects, variables: { limit: 500 } }),
+        client.graphql({ query: listSupportSubjects, variables: { limit: 500 } }),
+        client.graphql({ query: listSubjects, variables: { limit: 500 } }),
+      ]);
+      const catalog = [
+        ...((coreResult as any).data?.listCoreSubjects?.items || []).map((item: any) => ({ ...item, category: 'Core subjects' })),
+        ...((supportResult as any).data?.listSupportSubjects?.items || []).map((item: any) => ({ ...item, category: 'Support subjects' })),
+        ...((electiveResult as any).data?.listSubjects?.items || []).map((item: any) => ({ ...item, category: 'Electives' })),
+      ].filter((item: any, index: number, items: any[]) => item?.id && item?.name && items.findIndex((candidate) => candidate?.id === item.id) === index);
+      const catalogById = new Map<string, any>(catalog.map((item: any) => [String(item.id), item]));
+      const existingSubjects = Array.isArray(currentProfile.selectedSubjects) ? currentProfile.selectedSubjects : [];
+      const existingById = new Map<string, any>(existingSubjects.map((item: any) => [String(item?.id || ''), item]));
+      const requiredSubjects = requiredItems
+        .map((requirement) => {
+          const subjectId = String(requirement.subjectId);
+          const subject = catalogById.get(subjectId);
+          const existing = existingById.get(subjectId);
+          return {
+            ...existing,
+            id: subjectId,
+            code: subject?.code || existing?.code || subjectId,
+            name: subject?.name || existing?.name || requirement.subjectName || subjectId,
+            category: subject?.category || existing?.category || 'Course requirements',
+            learningAreaCode: subject?.learningAreaCode || existing?.learningAreaCode || null,
+            courseRequirementMinimumPoints: requirement.minimumPoints ?? null,
+            courseRequirementOperator: requirement.operator,
+            targetMarks: existing?.targetMarks ?? null,
+            marksScored: existing?.marksScored ?? null,
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+      const requiredIds = new Set(requiredSubjects.map((item) => item.id));
+      const additionalSubjects = existingSubjects.filter((item: any) => !requiredIds.has(String(item?.id || '')));
+      const nextSubjects = [...requiredSubjects, ...additionalSubjects];
+      const nextProfile = {
+        ...currentProfile,
+        targetCareer: currentProfile.targetCareer || selectedCareer?.courseName || null,
+        targetCareerId: currentProfile.targetCareerId || selectedCareer?.id || learnerRecord.selectedCareerId || null,
+        targetInstitutionId: currentProfile.targetInstitutionId || selectedCareer?.institutionId || null,
+        targetInstitutionName: currentProfile.targetInstitutionName || selectedCareer?.institutionName || null,
+        clusterRequirements: selectedCareer?.clusterRequirements || currentProfile.clusterRequirements || null,
+        selectedSubjects: nextSubjects,
+      };
+
+      await client.graphql({
+        query: updateLearnerProfile,
+        variables: { input: { id: learnerRecord.id, supportProfile: JSON.stringify(nextProfile) } },
+      });
+      setLearnerProfileMap((current) => ({ ...current, [learner.id]: nextProfile }));
+      setLearnerSubjectsMap((current) => ({
+        ...current,
+        [learner.id]: nextSubjects.map((item: any) => ({
+          id: String(item.id),
+          name: String(item.name || item.code || 'Unnamed subject'),
+          code: item.code || undefined,
+          category: item.category || null,
+          targetMarks: item.targetMarks ?? null,
+          marksScored: item.marksScored ?? null,
+        })),
+      }));
+      setCourseTargetMarkDrafts(Object.fromEntries(requiredSubjects.map((subject: any) => [
+        String(subject.id), subject.targetMarks === null || subject.targetMarks === undefined ? '' : String(subject.targetMarks),
+      ])));
+      setNotice(`Course-required subjects for ${selectedCareer?.courseName || learner.fullName} are loaded. Enter target marks before adding other subjects.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load course-required learner subjects.';
+      setNotice(message);
+      await loadSelectedLearnerSubjects(learner.id);
+    } finally {
+      setSubjectGroupsLoading(false);
+    }
+  };
+
+  const saveSeniorCourseTargets = async (learner: LearnerRecord) => {
+    const profile = learnerProfileMap[learner.id] || {};
+    const supportProfile = parseLearnerSupportProfile(profile.supportProfile) || profile;
+    const requiredItems = parseCourseClusterRequirements(supportProfile.clusterRequirements)?.subjectSequence || [];
+    const learnerSubjects = Array.isArray(supportProfile.selectedSubjects) ? supportProfile.selectedSubjects : [];
+    const nextTargets = new Map<string, number>();
+
+    for (const requirement of requiredItems) {
+      const rawValue = String(courseTargetMarkDrafts[requirement.subjectId] || '').trim();
+      const target = Number(rawValue);
+      if (!rawValue || !Number.isFinite(target) || target < 0 || target > 100) {
+        Alert.alert('Target marks required', 'Enter a target mark from 0 to 100 for each course-required subject before adding other subjects.');
+        return;
+      }
+      nextTargets.set(requirement.subjectId, target);
+    }
+
+    if (nextTargets.size === 0) {
+      setNotice('No course-required subjects are configured for this learner.');
+      return;
+    }
+
+    try {
+      setSavingSubject(true);
+      const learnerProfileId = String(profile.id || learner.id);
+      const currentProfile = supportProfile;
+      const existingSubjects = Array.isArray(currentProfile.selectedSubjects) ? currentProfile.selectedSubjects : learnerSubjects;
+      const currentRequirements = parseCourseClusterRequirements(currentProfile.clusterRequirements)?.subjectSequence || requiredItems;
+      const existingById = new Map<string, any>(existingSubjects.map((subject: any) => [String(subject?.id || subject?.code || ''), subject]));
+      const requiredSubjects = currentRequirements.map((requirement) => {
+        const subjectId = String(requirement.subjectId);
+        const existing = existingById.get(subjectId);
+        return {
+          ...existing,
+          id: subjectId,
+          code: existing?.code || subjectId,
+          name: existing?.name || requirement.subjectName || subjectId,
+          category: existing?.category || 'Course requirements',
+          learningAreaCode: existing?.learningAreaCode || null,
+          courseRequirementMinimumPoints: requirement.minimumPoints ?? existing?.courseRequirementMinimumPoints ?? null,
+          courseRequirementOperator: requirement.operator,
+          targetMarks: nextTargets.get(subjectId),
+          marksScored: existing?.marksScored ?? null,
+        };
+      });
+      const savedRequiredIds = new Set(requiredSubjects.map((subject) => subject.id));
+      const updatedSubjects = [...requiredSubjects, ...existingSubjects.filter((subject: any) => !savedRequiredIds.has(String(subject?.id || subject?.code || '')))];
+      const nextProfile = { ...currentProfile, selectedSubjects: updatedSubjects };
+
+      const updateResult = await client.graphql({
+        query: updateLearnerProfile,
+        variables: { input: { id: learnerProfileId, supportProfile: JSON.stringify(nextProfile) } },
+      });
+      const updatedRecord = (updateResult as any).data?.updateLearnerProfile;
+      if (!updatedRecord?.id) throw new Error('The learner profile update was not confirmed by the server.');
+      const confirmedProfile = parseLearnerSupportProfile(updatedRecord.supportProfile) || nextProfile;
+      const confirmedSubjects = Array.isArray(confirmedProfile.selectedSubjects) ? confirmedProfile.selectedSubjects : updatedSubjects;
+      const missingSavedTargets = requiredItems.filter((requirement) => {
+        const subject = confirmedSubjects.find((item: any) => String(item?.id || item?.code || '') === requirement.subjectId);
+        const target = Number(subject?.targetMarks);
+        return subject?.targetMarks === null || subject?.targetMarks === undefined || !Number.isFinite(target) || target < 0 || target > 100;
+      });
+      if (missingSavedTargets.length > 0) throw new Error('The server response did not include every course-required target mark.');
+
+      setLearnerProfileMap((current) => ({ ...current, [learner.id]: confirmedProfile }));
+      setLearnerSubjectsMap((current) => ({
+        ...current,
+        [learner.id]: confirmedSubjects.map((subject: any) => ({
+          id: String(subject.id),
+          name: String(subject.name || subject.code || 'Unnamed subject'),
+          code: subject.code || undefined,
+          category: subject.category || null,
+          targetMarks: subject.targetMarks ?? null,
+          marksScored: subject.marksScored ?? null,
+        })),
+      }));
+      setNotice('Course-required target marks saved. You can now add other subjects.');
+      Alert.alert('Course targets saved', 'The required subjects and target marks were saved. You can now add other subjects.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save course-required target marks.';
+      setNotice(message);
+      Alert.alert('Course targets not saved', message);
+    } finally {
+      setSavingSubject(false);
+    }
+  };
+
+  const getSeniorCourseTargetState = (learnerId: string) => {
+    const profile = learnerProfileMap[learnerId] || {};
+    const supportProfile = parseLearnerSupportProfile(profile.supportProfile) || profile;
+    const requirements = parseCourseClusterRequirements(supportProfile.clusterRequirements)?.subjectSequence || [];
+    const subjects = learnerSubjectsMap[learnerId] || [];
+    const requiredSubjects = requirements.map((requirement) => ({
+      requirement,
+      subject: subjects.find((item) => item.id === requirement.subjectId),
+    }));
+    const targetsSaved = requiredSubjects.length > 0 && requiredSubjects.every(({ subject }) => {
+      const target = Number(subject?.targetMarks);
+      return subject?.targetMarks !== null && subject?.targetMarks !== undefined && Number.isFinite(target) && target >= 0 && target <= 100;
+    });
+
+    return { requirements, requiredSubjects, targetsSaved };
   };
 
   const loadCategorySubjects = async (
@@ -1101,6 +1466,14 @@ export default function TeacherHomeScreen() {
         ? (currentProfile as any).selectedSubjects
         : [];
 
+      if (Number(String(selectedLearnerForSubjects.gradeLevel || learnerRecord.gradeLevel || '').replace(/\D/g, '')) >= 10) {
+        const requiredIds = new Set((parseCourseClusterRequirements(currentProfile.clusterRequirements)?.subjectSequence || []).map((item) => item.subjectId));
+        if (requiredIds.has(String(subject.id))) {
+          Alert.alert('Course-required subject', `${subject.name} is required by the learner's selected course and cannot be removed here.`);
+          return;
+        }
+      }
+
       const alreadyExists = existingSubjects.some((item: any) => {
         const currentId = String(item?.id || '').trim();
         const incomingId = String(subject.id || '').trim();
@@ -1164,12 +1537,19 @@ export default function TeacherHomeScreen() {
       if (selectedLearnerForSubjects?.id) {
         await loadSelectedLearnerSubjects(selectedLearnerForSubjects.id);
       }
-      setSubjectModalVisible(false);
-      setSelectedLearnerForSubjects(null);
-      setSelectedSubjectCandidate(null);
-      setSelectedSubjectCategory('');
-      setSubjectGroups([]);
-      setTargetMarksInput('');
+      if (Number(String(selectedLearnerForSubjects.gradeLevel || learnerRecord.gradeLevel || '').replace(/\D/g, '')) >= 10) {
+        setSelectedSubjectCandidate(null);
+        setSelectedSubjectCategory('');
+        setSubjectSelectionStep('category');
+        setTargetMarksInput('');
+      } else {
+        setSubjectModalVisible(false);
+        setSelectedLearnerForSubjects(null);
+        setSelectedSubjectCandidate(null);
+        setSelectedSubjectCategory('');
+        setSubjectGroups([]);
+        setTargetMarksInput('');
+      }
     } catch (error) {
       const graphqlError = error as { errors?: Array<{ message?: string }>; message?: string } | undefined;
       const extractedMessage = graphqlError?.errors?.[0]?.message || graphqlError?.message || 'Could not assign the subject to the learner.';
@@ -1180,7 +1560,8 @@ export default function TeacherHomeScreen() {
     }
   };
 
-  const calculateLearnerClusterPoints = (learner: LearnerRecord) => {
+  const calculateLearnerClusterPoints = (learner: LearnerRecord, clusterRequirements?: unknown): number | null => {
+    if (!hasCompleteCourseSubjectRequirements(clusterRequirements)) return null;
     const subjects = learnerSubjectsMap[learner.id] || [];
     const attempted = subjects
       .filter((subject) => typeof subject.marksScored === 'number' && !Number.isNaN(subject.marksScored))
@@ -1191,10 +1572,10 @@ export default function TeacherHomeScreen() {
 
     const grade = Number(String(learner.gradeLevel || '').replace(/\D/g, '')) || 0;
     if (grade < 10 || attempted.length === 0) {
-      return 0;
+      return null;
     }
 
-    return calculateClusterPointsFromSubjects(attempted);
+    return calculateCourseClusterPoints(attempted, clusterRequirements);
   };
 
   const syncGrade12ResultSummaryForLearner = async (learnerRecord: any) => {
@@ -1220,8 +1601,14 @@ export default function TeacherHomeScreen() {
       const targetCareerName = typeof supportProfile?.targetCareer === 'string' ? supportProfile.targetCareer.trim() : null;
       const institutionId = supportProfile?.targetInstitutionId || supportProfile?.institutionId || null;
       const institutionName = typeof supportProfile?.targetInstitutionName === 'string' ? supportProfile.targetInstitutionName.trim() : null;
-      const requiredAggregatePoints = Number.isFinite(Number(supportProfile?.minimumClusterScore)) ? Number(supportProfile.minimumClusterScore) : 0;
-      const nextAggregatePoints = calculateLearnerClusterPoints({
+      const selectedCareer = careerOptions.find((career) => career.id === selectedCareerId || career.courseName === targetCareerName);
+      const selectedRequirements = selectedCareer?.clusterRequirements || supportProfile?.clusterRequirements;
+      const hasSubjectRequirements = hasCompleteCourseSubjectRequirements(selectedRequirements);
+      const subjectPointsStatus = evaluateCourseSubjectPointRequirements(
+        learnerSubjectsMap[learnerRecord.id] || [],
+        selectedRequirements,
+      );
+      const nextCbeClusterPoints = calculateLearnerClusterPoints({
         id: learnerRecord.id,
         learnerId: learnerRecord.learnerId || learnerRecord.id,
         fullName: learnerRecord.fullName || 'Learner',
@@ -1229,11 +1616,12 @@ export default function TeacherHomeScreen() {
         gradeLevel: learnerRecord.gradeLevel || '12',
         classCode: learnerRecord.classCode || '',
         status: learnerRecord.status || 'active',
-      });
-      const aggregateGap = requiredAggregatePoints > 0 ? Math.max(0, requiredAggregatePoints - nextAggregatePoints) : 0;
-      const wasTargetCareerReached = requiredAggregatePoints > 0 ? nextAggregatePoints >= requiredAggregatePoints : false;
-      const resultStatus = requiredAggregatePoints > 0 ? (wasTargetCareerReached ? 'met_target' : 'below_target') : 'not_assessed';
-      const placementStatus = requiredAggregatePoints > 0 ? (wasTargetCareerReached ? 'eligible' : 'pending') : 'not_configured';
+      }, selectedRequirements);
+      const hasCourseRequirement = hasSubjectRequirements && subjectPointsStatus !== null;
+      const wasTargetCareerReached = hasCourseRequirement ? subjectPointsStatus : null;
+      const aggregateGap = null;
+      const resultStatus = hasCourseRequirement ? (wasTargetCareerReached ? 'met_target' : 'below_target') : 'not_assessed';
+      const placementStatus = hasCourseRequirement ? (wasTargetCareerReached ? 'eligible' : 'pending') : 'not_configured';
 
       const summaryInput = {
         learnerId: learnerRecord.id,
@@ -1247,8 +1635,8 @@ export default function TeacherHomeScreen() {
         targetCareerName: targetCareerName || null,
         pathwayId: supportProfile?.pathwayId || null,
         pathwayName: supportProfile?.pathwayName || null,
-        finalAggregatePoints: nextAggregatePoints,
-        requiredAggregatePoints: requiredAggregatePoints || null,
+        finalAggregatePoints: nextCbeClusterPoints,
+        requiredAggregatePoints: null,
         aggregateGap,
         resultStatus,
         wasTargetCareerReached,
@@ -1487,29 +1875,26 @@ export default function TeacherHomeScreen() {
         return typeof learnerRecord.supportProfile === 'object' ? learnerRecord.supportProfile : {};
       })();
 
-      const nextClusterPoints = calculateLearnerClusterPoints(learner);
-
-      await client.graphql({
-        query: updateLearnerProfile,
-        variables: {
-          input: {
-            id: learnerRecord.id,
-            supportProfile: JSON.stringify({
-              ...currentProfile,
-              targetClusterPoints: nextClusterPoints,
-            }),
-          },
-        },
+      const selectedCareer = careerOptions.find((career) => {
+        const targetCareerId = currentProfile?.targetCareerId || currentProfile?.selectedCareerId;
+        return career.id === targetCareerId || career.courseName === currentProfile?.targetCareer;
       });
+      const requirements = selectedCareer?.clusterRequirements || currentProfile?.clusterRequirements;
+      if (!hasCompleteCourseSubjectRequirements(requirements)) {
+        Alert.alert('Course requirements missing', 'This learner needs a selected tertiary course with complete subject groups and CBE minimum points before a cluster score can be calculated.');
+        return;
+      }
+      const nextClusterPoints = calculateLearnerClusterPoints(learner, requirements);
+      if (nextClusterPoints === null) {
+        Alert.alert('Cluster score unavailable', 'Marks are still missing for one or more required course subject groups. No score was saved.');
+        return;
+      }
 
       const gradeNumber = Number(String(learnerRecord.gradeLevel || '').replace(/\D/g, '')) || 0;
       if (gradeNumber === 12) {
         await syncGrade12ResultSummaryForLearner({
           ...learnerRecord,
-          supportProfile: JSON.stringify({
-            ...currentProfile,
-            targetClusterPoints: nextClusterPoints,
-          }),
+          supportProfile: JSON.stringify(currentProfile),
         });
       }
 
@@ -1532,17 +1917,15 @@ export default function TeacherHomeScreen() {
 
   const getHistoricalClusterSeries = (learner: LearnerRecord) => {
     const currentSubjects = learnerSubjectsMap[learner.id] || [];
-    const supportProfile = learnerProfileMap[learner.id] || { targetClusterPoints: learnerClusterPointsMap[learner.id], selectedSubjects: currentSubjects, historicalSelectedSubjects: [] };
+    const supportProfile = learnerProfileMap[learner.id] || { selectedSubjects: currentSubjects, historicalSelectedSubjects: [] };
     const series = calculateHistoricalClusterSeries(
       learner,
       {
         ...supportProfile,
         selectedSubjects: Array.isArray(supportProfile?.selectedSubjects) ? supportProfile.selectedSubjects : currentSubjects,
         historicalSelectedSubjects: Array.isArray(supportProfile?.historicalSelectedSubjects) ? supportProfile.historicalSelectedSubjects : [],
-        targetClusterPoints: learnerClusterPointsMap[learner.id],
       },
       currentSubjects,
-      learnerClusterPointsMap[learner.id],
     );
     try {
       const numericValues = series.map((s: any) => (Number.isFinite(Number(s.value)) ? Number(s.value) : NaN)).filter(Number.isFinite);
@@ -1563,487 +1946,6 @@ export default function TeacherHomeScreen() {
     }
 
     return series;
-  };
-
-  const getHistoricalSubjectSeries = (learner: LearnerRecord) => {
-    const currentSubjects = learnerSubjectsMap[learner.id] || [];
-    const profile = learnerProfileMap[learner.id] || {};
-    const historicalSubjects = Array.isArray(profile.historicalSelectedSubjects) ? profile.historicalSelectedSubjects : [];
-    const mergedSubjects = [...historicalSubjects, ...currentSubjects];
-
-    if (mergedSubjects.length === 0) return [];
-
-    const currentGrade = Number(String(learner.gradeLevel || '').replace(/\D/g, '')) || 7;
-    const subjectMap = new Map<string, { id?: string; name: string; code?: string; history: Array<any>; targetMarks: number | null; marksScored: number | null }>();
-    const normalizeSubjectKey = (subject: any) => {
-      const slug = String(subject?.name || subject?.code || subject?.id || 'subject').trim().toLowerCase();
-      return slug.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
-    };
-    const collapseHistoryByGrade = (entries: any[]) => {
-      const byGrade = new Map<string, any>();
-      entries.forEach((entry: any) => {
-        const grade = Number(String(entry?.label || '').trim());
-        if (!Number.isFinite(grade)) {
-          return;
-        }
-        const gradeKey = String(grade);
-        const current = byGrade.get(gradeKey);
-        const currentValue = Number(current?.value ?? NaN);
-        const candidateValue = Number(entry?.value ?? NaN);
-        const currentTarget = Number(current?.target ?? NaN);
-        const candidateTarget = Number(entry?.target ?? NaN);
-
-        const candidateWins = !current ||
-          (Number.isFinite(candidateValue) && candidateValue > 0 && (!Number.isFinite(currentValue) || currentValue <= 0)) ||
-          (Number.isFinite(candidateValue) && candidateValue > 0 && Number.isFinite(currentValue) && currentValue > 0 && Number.isFinite(candidateTarget) && Number.isFinite(currentTarget) && candidateTarget > currentTarget);
-
-        if (!current || candidateWins) {
-          byGrade.set(gradeKey, { ...entry, label: `${grade}` });
-        }
-      });
-
-      return Array.from(byGrade.values()).sort((left: any, right: any) => Number(left.label) - Number(right.label));
-    };
-    const assignSubjectByPhase = (subject: any) => {
-      const historyGrades: number[] = Array.isArray(subject?.history)
-        ? (subject.history as any[]).reduce<number[]>((accumulator: number[], entry: any) => {
-            const grade = Number(String(entry?.label || '').trim());
-            if (Number.isFinite(grade)) {
-              accumulator.push(grade);
-            }
-            return accumulator;
-          }, [])
-        : [];
-      const phaseCandidates: number[] = historyGrades.length > 0 ? historyGrades : [Number.isFinite(currentGrade) ? currentGrade : 7];
-      const phases = Array.from(new Set<string>(phaseCandidates.map((grade: number) => (grade >= 10 ? 'senior' : 'junior'))));
-
-      phases.forEach((phase) => {
-        const key = `${normalizeSubjectKey(subject)}:${phase}`;
-        const existing = subjectMap.get(key);
-        const filteredHistory = Array.isArray(subject?.history)
-          ? collapseHistoryByGrade(subject.history.filter((entry: any) => {
-              const grade = Number(String(entry?.label || '').trim());
-              return Number.isFinite(grade) && ((grade >= 10 && phase === 'senior') || (grade < 10 && phase === 'junior'));
-            }))
-          : [];
-        const normalizedSubject = {
-          id: subject?.id || undefined,
-          name: subject?.name || subject?.code || 'Unnamed subject',
-          code: subject?.code || undefined,
-          history: filteredHistory,
-          targetMarks: Number.isFinite(Number(subject?.targetMarks)) ? Number(subject.targetMarks) : null,
-          marksScored: Number.isFinite(Number(subject?.marksScored)) ? Number(subject.marksScored) : null,
-        };
-
-        if (!existing) {
-          subjectMap.set(key, normalizedSubject);
-          return;
-        }
-
-        existing.history = collapseHistoryByGrade([...existing.history, ...normalizedSubject.history]);
-        if (normalizedSubject.targetMarks !== null && (existing.targetMarks === null || normalizedSubject.targetMarks > 0)) {
-          existing.targetMarks = normalizedSubject.targetMarks;
-        }
-        if (normalizedSubject.marksScored !== null) {
-          existing.marksScored = normalizedSubject.marksScored;
-        }
-      });
-    };
-
-    mergedSubjects.forEach((subject: any) => {
-      assignSubjectByPhase(subject);
-    });
-
-    const subjectSeriesDebug = Array.from(subjectMap.values()).map((subject) => ({
-      name: subject.name,
-      code: subject.code,
-      targetMarks: subject.targetMarks,
-      marksScored: subject.marksScored,
-      history: Array.isArray(subject.history) ? subject.history.map((entry: any) => ({
-        label: entry?.label,
-        value: entry?.value,
-        target: entry?.target,
-      })) : [],
-    }));
-
-    console.log('[DEBUG_SUBJECT_SERIES_RAW]', JSON.stringify({
-      learnerId: learner?.id,
-      learnerGrade: learner?.gradeLevel,
-      rawSubjects: mergedSubjects.map((subject: any) => ({
-        name: subject?.name || subject?.code,
-        code: subject?.code,
-        id: subject?.id,
-        targetMarks: subject?.targetMarks,
-        marksScored: subject?.marksScored,
-        history: Array.isArray(subject?.history) ? subject.history.map((entry: any) => ({
-          label: entry?.label,
-          value: entry?.value,
-          target: entry?.target,
-        })) : [],
-      })),
-      grouped: subjectSeriesDebug,
-    }, null, 2));
-
-    return Array.from(subjectMap.values()).map((subject) => {
-      const history = subject.history || [];
-      const phase = Array.isArray(history) && history.some((entry: any) => Number(String(entry?.label || '').trim()) >= 10) ? 'senior' : 'junior';
-      const gradeKeys = Array.from(new Set([
-        ...(phase === 'senior' ? [10, 11, 12] : [7, 8, 9]),
-        ...history
-          .map((entry: any) => Number(String(entry?.label || '').trim()))
-          .filter((grade) => Number.isFinite(grade) && ((phase === 'senior' && grade >= 10 && grade <= 12) || (phase === 'junior' && grade >= 7 && grade <= 9))),
-        ...(Number.isFinite(currentGrade) && ((phase === 'senior' && currentGrade >= 10) || (phase === 'junior' && currentGrade <= 9)) ? [currentGrade] : []),
-      ])).sort((left, right) => left - right);
-
-      const values = gradeKeys
-        .map((grade) => {
-          const entry = history.find((item: any) => String(item?.label) === String(grade));
-          const targetMark = Number(
-            Number.isFinite(Number(entry?.target)) ? Number(entry.target) :
-              (grade === currentGrade ? (Number.isFinite(Number(subject.targetMarks)) ? Number(subject.targetMarks) : 0) : (subject.targetMarks ?? 0)),
-          );
-          const achieved = Number.isFinite(Number(entry?.value)) ? Number(entry.value) :
-            (grade === currentGrade && Number.isFinite(Number(subject.marksScored)) ? Number(subject.marksScored) : NaN);
-
-          if (!Number.isFinite(targetMark) || targetMark <= 0 || !Number.isFinite(achieved)) {
-            return null;
-          }
-
-          return { label: `${grade}`, value: achieved, target: targetMark };
-        })
-        .filter((point): point is { label: string; value: number; target: number } => point !== null);
-
-      if (values.length === 0) return null;
-
-      console.log('[DEBUG_SUBJECT_SERIES_VALUES]', JSON.stringify({
-        subject: subject.name,
-        currentGrade,
-        gradeKeys,
-        values,
-      }, null, 2));
-
-      return {
-        label: subject.name.split(' ')[0] || 'Subject',
-        values,
-      };
-    }).filter((subject): subject is { label: string; values: Array<{ label: string; value: number; target: number }> } => subject !== null);
-  };
-
-  const renderLineChart = (
-    series: Array<{ label: string; value: number; target?: number }>,
-    targetColor: string,
-    valueColor: string,
-    maxY: number,
-    nationalRequirement?: number | null,
-  ) => {
-    const { width: windowWidth } = require('react-native').Dimensions.get('window');
-    const chartWidth = Math.max(300, Math.min(420, windowWidth - 48));
-    const chartHeight = 520;
-    const paddingLeft = 32;
-    const paddingRight = 18;
-    const paddingTop = 12;
-    const paddingBottom = 42;
-    const axisGrades = [7, 8, 9, 10, 11, 12] as const;
-    const majorStep = 10;
-    const minorStep = 1;
-    const dynamicValues = series.flatMap((point) => [Number(point.value || 0), Number(point.target || 0)])
-      .filter((value) => Number.isFinite(value));
-    const requirementValues = typeof nationalRequirement === 'number' && Number.isFinite(nationalRequirement) ? [nationalRequirement] : [];
-    const resolvedMaxY = Math.max(100, ...dynamicValues, ...requirementValues, 0);
-    const yMajorTicks = Array.from({ length: Math.floor(resolvedMaxY / majorStep) + 1 }, (_, index) => index * majorStep);
-    const yMinorTicks = Array.from({ length: resolvedMaxY + 1 }, (_, index) => index * minorStep);
-
-    type ChartPoint = {
-      label: string;
-      x: number;
-      valueY: number | null;
-      targetY: number | null;
-    };
-
-    const gradeToX = (grade: number) => {
-      const gradeIndex = axisGrades.indexOf(grade as (typeof axisGrades)[number]);
-      const safeIndex = gradeIndex >= 0 ? gradeIndex : 0;
-      return paddingLeft + (safeIndex / Math.max(axisGrades.length - 1, 1)) * (chartWidth - paddingLeft - paddingRight);
-    };
-
-    const axisLineY = chartHeight - paddingBottom;
-    const valueToY = (value: number) => {
-      const safeValue = Number.isFinite(value) ? value : 0;
-      const plotValue = safeValue > 0 && safeValue < 1 ? 1 : safeValue;
-      const clampedValue = Math.max(0, Math.min(resolvedMaxY, plotValue));
-      const usableHeight = chartHeight - paddingTop - paddingBottom;
-      return axisLineY - (clampedValue / Math.max(resolvedMaxY, 1)) * usableHeight;
-    };
-
-    const points: ChartPoint[] = series
-      .filter((point) => Number.isFinite(Number(point.label)) && Number(point.label) >= 7 && Number(point.label) <= 12)
-      .map((point) => {
-        const grade = Number(point.label);
-        const rawValue = Number(point.value);
-        const rawTarget = Number(point.target);
-        return {
-          label: point.label,
-          x: gradeToX(grade),
-          valueY: Number.isFinite(rawValue) ? valueToY(rawValue) : null,
-          targetY: Number.isFinite(rawTarget) ? valueToY(rawTarget) : null,
-        };
-      })
-      .filter((point) => point.valueY !== null || point.targetY !== null)
-      .sort((left, right) => Number(left.label) - Number(right.label));
-
-    const buildSegments = (items: Array<{ label: string; x: number; y: number }>) => {
-      if (!Array.isArray(items) || items.length === 0) {
-        return [] as Array<Array<{ label: string; x: number; y: number }>>;
-      }
-
-      const segments: Array<Array<{ label: string; x: number; y: number }>> = [];
-      let current: Array<{ label: string; x: number; y: number }> = [];
-
-      items.forEach((item) => {
-        if (current.length === 0) {
-          current = [item];
-          return;
-        }
-
-        const previousLabel = Number(current[current.length - 1].label);
-        const currentLabel = Number(item.label);
-        const shouldBreakPhase = previousLabel <= 9 && currentLabel >= 10;
-        if (!Number.isFinite(previousLabel) || !Number.isFinite(currentLabel) || currentLabel - previousLabel > 1 || shouldBreakPhase) {
-          segments.push(current);
-          current = [item];
-          return;
-        }
-
-        current.push(item);
-      });
-
-      if (current.length > 0) {
-        segments.push(current);
-      }
-
-      return segments;
-    };
-
-    const drawPolyline = (color: string, values: Array<{ label: string; x: number; y: number }>, keyPrefix: string) => {
-      if (values.length < 2) {
-        return null;
-      }
-
-      return values.slice(1).map((point, index) => {
-        const start = values[index];
-        const end = point;
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        const distance = Math.hypot(dx, dy) || 1;
-        const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-        const thickness = 3;
-        const midX = (start.x + end.x) / 2;
-        const midY = (start.y + end.y) / 2;
-
-        return (
-          <View
-            key={`${keyPrefix}-segment-${index}`}
-            style={{
-              position: 'absolute',
-              left: midX - distance / 2,
-              top: midY - thickness / 2,
-              width: distance,
-              height: thickness,
-              backgroundColor: color,
-              borderRadius: 999,
-              transform: [{ rotate: `${angle}deg` }],
-            }}
-          />
-        );
-      });
-    };
-
-    const targetPoints = points
-      .filter((point) => typeof point.targetY === 'number')
-      .map((point) => ({ label: point.label, x: point.x, y: point.targetY ?? axisLineY }));
-
-    const valuePoints = points
-      .filter((point) => typeof point.valueY === 'number')
-      .map((point) => ({ label: point.label, x: point.x, y: point.valueY ?? axisLineY }));
-
-    const requirementPoints = typeof nationalRequirement === 'number' && Number.isFinite(nationalRequirement)
-      ? [10, 11, 12]
-        .filter((grade) => grade >= 10 && grade <= 12)
-        .map((grade) => ({ label: String(grade), x: gradeToX(grade), y: valueToY(nationalRequirement) }))
-      : [];
-
-    const targetSegments = buildSegments(targetPoints);
-    const valueSegments = buildSegments(valuePoints);
-    const requirementSegments = buildSegments(requirementPoints);
-
-    return (
-      <View style={styles.chartCard}>
-        <View style={styles.chartLegendRow}>
-          <View style={styles.chartLegendItem}>
-            <View style={[styles.chartLegendSwatch, { backgroundColor: targetColor }]} />
-            <Text style={styles.chartLegendText}>Target</Text>
-          </View>
-          <View style={styles.chartLegendItem}>
-            <View style={[styles.chartLegendSwatch, { backgroundColor: valueColor }]} />
-            <Text style={styles.chartLegendText}>Achieved</Text>
-          </View>
-          {requirementPoints.length > 0 ? (
-            <View style={styles.chartLegendItem}>
-              <View style={[styles.chartLegendSwatch, { backgroundColor: '#22c55e' }]} />
-              <Text style={styles.chartLegendText}>National requirement</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={{ width: chartWidth, height: chartHeight }}>
-          {yMinorTicks.map((tick) => {
-            const y = valueToY(tick);
-            const isMajorTick = tick === 1 || tick % majorStep === 0;
-            return (
-              <View
-                key={`y-grid-${tick}`}
-                style={{
-                  position: 'absolute',
-                  left: paddingLeft,
-                  right: paddingRight,
-                  top: y,
-                  height: 1,
-                  backgroundColor: isMajorTick ? '#94a3b8' : '#dbeafe',
-                }}
-              />
-            );
-          })}
-
-          {yMajorTicks.map((tick) => {
-            const y = valueToY(tick);
-            return (
-              <Text
-                key={`y-label-${tick}`}
-                style={[
-                  styles.chartAxisLabel,
-                  {
-                    position: 'absolute',
-                    left: 6,
-                    top: y - 8,
-                    width: paddingLeft - 12,
-                    textAlign: 'right',
-                    color: '#0f172a',
-                  },
-                ]}
-              >
-                {tick}
-              </Text>
-            );
-          })}
-
-          <View
-            style={{
-              position: 'absolute',
-              left: paddingLeft,
-              right: paddingRight,
-              top: axisLineY,
-              height: 1,
-              backgroundColor: '#475569',
-            }}
-          />
-
-          {axisGrades.map((grade) => {
-            const x = gradeToX(grade);
-            return (
-              <View
-                key={`x-grid-${grade}`}
-                style={{
-                  position: 'absolute',
-                  top: paddingTop,
-                  bottom: paddingBottom,
-                  left: x,
-                  width: 1,
-                  backgroundColor: '#dbeafe',
-                }}
-              />
-            );
-          })}
-
-          <View style={{ position: 'absolute', left: 0, top: paddingTop, width: chartWidth, height: chartHeight - paddingTop - paddingBottom }}>
-            {targetSegments.map((segment, segmentIndex) => drawPolyline(targetColor, segment, `target-${segmentIndex}`))}
-            {valueSegments.map((segment, segmentIndex) => drawPolyline(valueColor, segment, `value-${segmentIndex}`))}
-            {requirementSegments.map((segment, segmentIndex) => drawPolyline('#22c55e', segment, `national-${segmentIndex}`))}
-            {valuePoints.map((point, index) => (
-              <View
-                key={`achieved-dot-${index}`}
-                style={{
-                  position: 'absolute',
-                  left: point.x - 4,
-                  top: point.y - 4,
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: valueColor,
-                }}
-              />
-            ))}
-            {targetPoints.map((point, index) => (
-              <View
-                key={`target-dot-${index}`}
-                style={{
-                  position: 'absolute',
-                  left: point.x - 4,
-                  top: point.y - 4,
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: targetColor,
-                }}
-              />
-            ))}
-            {requirementPoints.map((point, index) => (
-              <View
-                key={`national-dot-${index}`}
-                style={{
-                  position: 'absolute',
-                  left: point.x - 4,
-                  top: point.y - 4,
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: '#22c55e',
-                }}
-              />
-            ))}
-          </View>
-
-          <View
-            style={{
-              position: 'absolute',
-              left: 0,
-              width: chartWidth,
-              bottom: 0,
-            }}
-          >
-            {axisGrades.map((grade) => {
-              const x = gradeToX(grade);
-              return (
-                <Text
-                  key={`axis-${grade}`}
-                  style={[
-                    styles.chartAxisLabel,
-                    {
-                      position: 'absolute',
-                      left: x - 10,
-                      width: 20,
-                      textAlign: 'center',
-                      color: '#0f172a',
-                    },
-                  ]}
-                >
-                  {grade}
-                </Text>
-              );
-            })}
-          </View>
-        </View>
-      </View>
-    );
   };
 
   const promptLearnerAction = (learner: LearnerRecord, action: 'view' | 'update' | 'addSubject') => {
@@ -2213,6 +2115,12 @@ export default function TeacherHomeScreen() {
       return;
     }
 
+    if (!hasCompleteCourseSubjectRequirements(selectedCareer.clusterRequirements)) {
+      setNotice('This course cannot be assigned because its CBE subject groups or minimum points are missing or invalid.');
+      Alert.alert('Course requirements incomplete', 'Choose a tertiary course with at least one required subject group and a CBE minimum (1–8) for every subject.');
+      return;
+    }
+
     if (!gender.trim()) {
       setNotice('Please choose the learner gender.');
       Alert.alert('Missing gender', 'Please choose the learner gender.');
@@ -2256,9 +2164,7 @@ export default function TeacherHomeScreen() {
         targetCareerId: selectedCareer.id,
         targetInstitutionId: selectedCareer.institutionId ?? null,
         targetInstitutionName: selectedCareer.institutionName ?? null,
-        minimumClusterScore: selectedCareer.minimumClusterScore ?? null,
-        careerClusterPoints: 0,
-        targetClusterPoints: 0,
+        clusterRequirements: selectedCareer.clusterRequirements ?? null,
       };
 
       const supportProfileValue = Object.values(supportProfilePayload).some((value) => value !== null && value !== undefined && value !== '')
@@ -2334,8 +2240,6 @@ export default function TeacherHomeScreen() {
       setGender('');
       setLearnerDetails({
         targetCareer: '',
-        careerClusterPoints: '',
-        targetClusterPoints: '',
       });
       setParentNationalId('');
       setShowLearnerDetails(false);
@@ -2482,8 +2386,6 @@ export default function TeacherHomeScreen() {
       const nextSupportProfile = {
         ...parsedSupportProfile,
         targetCareer: null,
-        careerClusterPoints: null,
-        targetClusterPoints: null,
         selectedSubjects: [],
         historicalSelectedSubjects: preservedHistoricalSubjects,
       };
@@ -2543,7 +2445,7 @@ export default function TeacherHomeScreen() {
               <TouchableOpacity
                 key={classItem.id}
                 style={[styles.classButton, selectedClassCode === classItem.classCode && styles.classButtonActive]}
-                onPress={() => setSelectedClassCode(classItem.classCode || '')}
+                onPress={() => selectAssignedClass(classItem)}
               >
                 <Text style={[styles.classButtonText, selectedClassCode === classItem.classCode && styles.classButtonTextActive]}>
                   {classItem.className || `Grade ${classItem.classCode}`}
@@ -2567,9 +2469,7 @@ export default function TeacherHomeScreen() {
                     key={classItem.id}
                     style={[styles.gradeChip, selectedClassCode === classItem.classCode && styles.gradeChipSelected]}
                     onPress={() => {
-                      const nextClassCode = classItem.classCode || '';
-                      setSelectedClassCode(nextClassCode);
-                      setGradeLevel(nextClassCode);
+                      selectAssignedClass(classItem);
                       setShowLearnerDetails(true);
                     }}
                   >
@@ -2641,8 +2541,6 @@ export default function TeacherHomeScreen() {
                   setGender('');
                   setLearnerDetails({
                     targetCareer: '',
-                    careerClusterPoints: '',
-                    targetClusterPoints: '',
                   });
                   setParentNationalId('');
                   setFullName('');
@@ -2716,12 +2614,10 @@ export default function TeacherHomeScreen() {
                   if (!promotionLearner || reassigningSubjects) return;
                   setReassigningSubjects(true);
                   setPromotionModalVisible(false);
-                  setSelectedLearnerForSubjects(promotionLearner);
-                  setSubjectSelectionStep('category');
-                  setSelectedSubjectCategory('');
-                  setSelectedSubjectCandidate(null);
-                  setTargetMarksInput('');
-                  setSubjectModalVisible(true);
+                  void openSubjectCategoryModal({
+                    ...promotionLearner,
+                    gradeLevel: promotionGradeInput || promotionLearner.gradeLevel,
+                  });
                   Alert.alert('Reassign subjects', `Open the subject list for ${promotionLearner.fullName} and assign the next class subjects.`);
                   setTimeout(() => setReassigningSubjects(false), 250);
                 }}
@@ -2804,6 +2700,11 @@ export default function TeacherHomeScreen() {
                     return;
                   }
 
+                  if (!hasCompleteCourseSubjectRequirements(selectedCareer.clusterRequirements)) {
+                    Alert.alert('Course requirements incomplete', 'Choose a tertiary course with at least one required subject group and a CBE minimum (1–8) for every subject.');
+                    return;
+                  }
+
                   void (async () => {
                     try {
                       setResettingCareerTarget(true);
@@ -2824,9 +2725,7 @@ export default function TeacherHomeScreen() {
                         targetCareerId: selectedCareer.id,
                         targetInstitutionId: selectedCareer.institutionId ?? null,
                         targetInstitutionName: selectedCareer.institutionName ?? null,
-                        minimumClusterScore: selectedCareer.minimumClusterScore ?? null,
-                        careerClusterPoints: 0,
-                        targetClusterPoints: 0,
+                        clusterRequirements: selectedCareer.clusterRequirements ?? null,
                       };
 
                       await client.graphql({ query: updateLearnerProfile, variables: { input: { id: learnerRecord.id, selectedCareerId: selectedCareer.id, supportProfile: JSON.stringify(nextProfile) } } });
@@ -2866,7 +2765,7 @@ export default function TeacherHomeScreen() {
         <View style={styles.dialogBackdrop}>
           <View style={styles.dialogCard}>
             <Text style={styles.dialogTitle}>Approved programmes</Text>
-            <Text style={styles.dialogText}>Select the institution-owned programme and its minimum cluster score for this learner.</Text>
+            <Text style={styles.dialogText}>Select the institution-owned programme to apply its required subject groups and minimum points.</Text>
 
             <Text style={styles.fieldLabel}>Institution name</Text>
             <TextInput
@@ -2890,7 +2789,7 @@ export default function TeacherHomeScreen() {
               {careerOptionsLoading ? (
                 <View style={styles.centeredRow}><ActivityIndicator size="small" color="#1d4ed8" /><Text style={styles.optionHint}>Loading programmes...</Text></View>
               ) : filteredCareerOptions.length === 0 ? (
-                <Text style={styles.optionHint}>No matching tertiary programmes found for the current filters.</Text>
+                <Text style={styles.optionHint}>No assignable courses match these filters. A course needs configured subject groups and a CBE minimum (1–8) for every subject.</Text>
               ) : (
                 filteredCareerOptions.map((career) => (
                   <TouchableOpacity
@@ -2907,8 +2806,18 @@ export default function TeacherHomeScreen() {
                   >
                     <Text style={styles.optionTitle}>{career.courseName}</Text>
                     <Text style={styles.optionMeta}>{career.institutionName || 'Unknown institution'}</Text>
-                    {career.minimumClusterScore !== null && typeof career.minimumClusterScore !== 'undefined' ? (
-                      <Text style={styles.optionMeta}>Minimum cluster points: {career.minimumClusterScore}</Text>
+                    {career.clusterRequirements?.subjectSequence?.length ? (
+                      <View style={styles.courseRequirementsSummary}>
+                        <Text style={styles.optionMeta}>
+                          {getCourseRequirementGroups(career.clusterRequirements).length} required subject groups · score scale up to {8 * getCourseRequirementGroups(career.clusterRequirements).length} points
+                        </Text>
+                        <Text style={styles.optionRequirementsText}>
+                          {getCourseRequirementGroups(career.clusterRequirements).map((group) => group.map((requirement) => {
+                            const displayRequirement = requirement as typeof requirement & { subjectName?: string };
+                            return `${displayRequirement.subjectName || requirement.subjectId}: ${Number.isInteger(requirement.minimumPoints) ? `${requirement.minimumPoints} ${getCbeAchievementLevel(Number(requirement.minimumPoints))}` : 'minimum not set'}`;
+                          }).join(' OR ')).join('  ·  ')}
+                        </Text>
+                      </View>
                     ) : null}
                   </TouchableOpacity>
                 ))
@@ -2949,14 +2858,7 @@ export default function TeacherHomeScreen() {
                 style={styles.primaryButton}
                 onPress={() => {
                   if (subjectIntroLearner) {
-                    setSelectedLearnerForSubjects(subjectIntroLearner);
-                    setSelectedSubjectCandidate(null);
-                    setTargetMarksInput('');
-                    setSubjectGroups([]);
-                    setSubjectGroupsLoading(false);
-                    setSelectedSubjectCategory('');
-                    setSubjectSelectionStep('category');
-                    setSubjectModalVisible(true);
+                    void openSubjectCategoryModal(subjectIntroLearner);
                     setSubjectIntroLearner(null);
                     setSubjectIntroVisible(false);
                   }
@@ -3005,7 +2907,8 @@ export default function TeacherHomeScreen() {
                 <Text style={[styles.metaText, styles.learnerMetaText]}>Grade {learner.gradeLevel || 'Not set'}: Status: {learner.status || 'active'}</Text>
                 <View style={styles.learnerActions}>
                   {(() => {
-                    const gradeNumber = Number(String(learner.gradeLevel || '').replace(/\D/g, '')) || 0;
+                    const assignmentGrade = selectedLearnerForSubjects?.gradeLevel || learner.gradeLevel;
+                    const gradeNumber = Number(String(assignmentGrade || '').replace(/\D/g, '')) || 0;
                     if (gradeNumber === 7) {
                       return (
                         <TouchableOpacity
@@ -3053,19 +2956,12 @@ export default function TeacherHomeScreen() {
                   ) : (
                     <View style={styles.subjectSummaryList}>
                       {(learnerSubjectsMap[learner.id] || []).map((subject) => (
-                        <View key={subject.id} style={styles.subjectBadge}>
-                          <Text style={styles.subjectBadgeText}>{subject.name}</Text>
-                          {typeof subject.targetMarks === 'number' ? (
-                            <Text style={styles.subjectBadgeMeta}>Target: {subject.targetMarks}</Text>
-                          ) : null}
-                          <TouchableOpacity
-                            accessibilityLabel={`Remove ${subject.name} from ${learner.fullName}`}
-                            style={styles.removeSubjectButton}
-                            onPress={() => void removeSubjectFromLearner(learner.id, subject.id)}
-                          >
-                            <Text style={styles.removeSubjectButtonText}>×</Text>
-                          </TouchableOpacity>
-                        </View>
+                        <AddedSubjectBadge
+                          key={subject.id}
+                          subject={subject}
+                          onRemove={() => void removeSubjectFromLearner(learner.id, subject.id)}
+                          removeLabel={`Remove ${subject.name} from ${learner.fullName}`}
+                        />
                       ))}
                     </View>
                   )
@@ -3083,15 +2979,17 @@ export default function TeacherHomeScreen() {
 
                   {performanceAction === 'viewMenu' ? (
                     <ViewPerformance
+                      learner={learner}
+                      profile={learnerProfileMap[learner.id] || {}}
+                      targetCareer={learnerCareerMap[learner.id]}
                       onViewCluster={() => setPerformanceAction('viewCluster')}
-                      onViewSubjects={() => setPerformanceAction('viewSubjects')}
+                      onViewSubjects={() => {
+                        void loadLearnerDocuments(learner.id);
+                        setPerformanceAction('viewSubjects');
+                      }}
                       onViewGuidance={() => {
                         void loadLearnerGuidance(learner.id);
                         setPerformanceAction('viewGuidance');
-                      }}
-                      onViewEPortfolio={() => {
-                        void loadLearnerDocuments(learner.id);
-                        setPerformanceAction('viewEPortfolio');
                       }}
                     />
                   ) : null}
@@ -3117,16 +3015,6 @@ export default function TeacherHomeScreen() {
                           <Text style={styles.categoryButtonText}>Create rubric</Text>
                         </TouchableOpacity>
                       )}
-
-                      <TouchableOpacity
-                        style={styles.categoryButton}
-                        onPress={() => {
-                          void loadLearnerDocuments(learner.id);
-                          setPerformanceAction('documents');
-                        }}
-                      >
-                        <Text style={styles.categoryButtonText}>E-portfolio files</Text>
-                      </TouchableOpacity>
 
                       {Number(String(learner.gradeLevel || '').replace(/\D/g, '')) === 12 ? (
                         <TouchableOpacity
@@ -3188,7 +3076,30 @@ export default function TeacherHomeScreen() {
                                     disabled={!!savingSubjectMap[subject.id]}
                                     accessibilityLabel={`Refresh marks for ${subject.name}`}
                                   >
-                                    <Text style={styles.inlineSaveButtonText}>{savingSubjectMap[subject.id] ? '…' : '↻'}</Text>
+                                    {savingSubjectMap[subject.id]
+                                      ? <ActivityIndicator size="small" color="#1d4ed8" />
+                                      : <Ionicons name="refresh-outline" size={18} color="#1d4ed8" />}
+                                  </TouchableOpacity>
+                                </View>
+                                <View style={styles.subjectEvidenceActions}>
+                                  <TouchableOpacity
+                                    style={styles.subjectEvidenceButton}
+                                    onPress={() => confirmUploadForSubject(learner, { id: subject.id, name: subject.name })}
+                                    disabled={uploadingDocument}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Upload e-file for ${subject.name}`}
+                                  >
+                                    <Ionicons name="document-attach-outline" size={19} color="#1d4ed8" />
+                                    <Text style={styles.subjectEvidenceButtonText}>Document</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={styles.subjectEvidenceButton}
+                                    onPress={() => openVideoLinkForm({ id: subject.id, name: subject.name })}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Add YouTube video for ${subject.name}`}
+                                  >
+                                    <Ionicons name="videocam-outline" size={19} color="#b91c1c" />
+                                    <Text style={styles.subjectEvidenceButtonText}>Video</Text>
                                   </TouchableOpacity>
                                 </View>
                               </View>
@@ -3261,78 +3172,6 @@ export default function TeacherHomeScreen() {
                     </View>
                   ) : null}
 
-                  {performanceAction === 'documents' ? (
-                    <View style={styles.subjectListBox}>
-                      <Text style={styles.subjectListTitle}>E-portfolio files</Text>
-                      {documentDebugMessage ? <Text style={styles.metaText}>{documentDebugMessage}</Text> : null}
-
-                      <Text style={styles.detailLabel}>Document title</Text>
-                      <TextInput
-                        style={styles.subjectPerformanceInput}
-                        value={documentTitleInput}
-                        onChangeText={setDocumentTitleInput}
-                        placeholder="e.g. Mid-term scan or portfolio reflection"
-                        placeholderTextColor="#6b7280"
-                      />
-
-                      <Text style={styles.detailLabel}>Description</Text>
-                      <TextInput
-                        style={[styles.subjectPerformanceInput, { minHeight: 64, textAlignVertical: 'top' }]}
-                        value={documentDescriptionInput}
-                        onChangeText={setDocumentDescriptionInput}
-                        placeholder="Short note for the teacher and learner file timeline"
-                        placeholderTextColor="#6b7280"
-                        multiline
-                      />
-
-                      <TouchableOpacity
-                        style={[styles.primaryButton, styles.ePortfolioUploadButton, uploadingDocument && styles.primaryButtonDisabled]}
-                        onPress={() => void pickAndUploadLearnerDocument(learner)}
-                        disabled={uploadingDocument}
-                      >
-                        <View style={styles.buttonContentRow}>
-                          {uploadingDocument ? <ActivityIndicator size="small" color="#ffffff" /> : null}
-                          <Text style={styles.primaryButtonText}>{uploadingDocument ? 'Uploading...' : 'Pick and upload e-portfolio file'}</Text>
-                        </View>
-                      </TouchableOpacity>
-
-                      <View style={styles.linkedDocumentList}>
-                        <Text style={styles.subjectListTitle}>Uploaded e-portfolio files</Text>
-                        <Text style={styles.metaText}>Files loaded: {(learnerDocumentMap[learner.id] || []).length}</Text>
-                        {(learnerDocumentMap[learner.id] || []).length === 0 ? (
-                          <Text style={styles.empty}>No e-portfolio files are linked to this learner yet.</Text>
-                        ) : (
-                          (learnerDocumentMap[learner.id] || []).map((resource) => (
-                            <View key={resource.id} style={styles.linkedDocumentCard}>
-                              <View style={styles.linkedDocumentHeader}>
-                                <View style={styles.linkedDocumentTextBlock}>
-                                  <Text style={styles.linkedDocumentTitle}>{resource.title}</Text>
-                                  <Text style={styles.linkedDocumentMeta}>
-                                    E-portfolio file • {resource.status}
-                                  </Text>
-                                </View>
-
-                                <TouchableOpacity
-                                  style={styles.inlineSaveButton}
-                                  onPress={() => void openLearnerDocument(resource)}
-                                  disabled={openingDocumentId === resource.id}
-                                >
-                                  <Text style={styles.inlineSaveButtonText}>{openingDocumentId === resource.id ? '…' : 'Open'}</Text>
-                                </TouchableOpacity>
-                              </View>
-
-                              {resource.description ? <Text style={styles.linkedDocumentDescription}>{resource.description}</Text> : null}
-
-                              <Text style={styles.linkedDocumentMeta}>
-                                {resource.fileName} • {formatFileSize(resource.fileSizeBytes)} • {formatDocumentDate(resource.createdAt)}
-                              </Text>
-                            </View>
-                          ))
-                        )}
-                      </View>
-                    </View>
-                  ) : null}
-
                   {performanceAction === 'viewGuidance' ? (
                     <View style={styles.subjectListBox}>
                       <Text style={styles.subjectListTitle}>Guidance & comments</Text>
@@ -3377,8 +3216,8 @@ export default function TeacherHomeScreen() {
 
                   {performanceAction === 'viewEPortfolio' ? (
                     <View style={styles.subjectListBox}>
-                      <Text style={styles.subjectListTitle}>View e-portfolio files</Text>
-                      <Text style={styles.metaText}>Files loaded: {(learnerDocumentMap[learner.id] || []).length}</Text>
+                      <Text style={styles.subjectListTitle}>View learner e-files</Text>
+                      <Text style={styles.metaText}>Resources loaded: {(learnerDocumentMap[learner.id] || []).length}</Text>
                       {(learnerDocumentMap[learner.id] || []).length === 0 ? (
                         <Text style={styles.empty}>No e-portfolio files are linked to this learner yet.</Text>
                       ) : (
@@ -3388,7 +3227,8 @@ export default function TeacherHomeScreen() {
                               <View style={styles.linkedDocumentHeader}>
                                 <View style={styles.linkedDocumentTextBlock}>
                                   <Text style={styles.linkedDocumentTitle}>{resource.title}</Text>
-                                  <Text style={styles.linkedDocumentMeta}>E-portfolio file • {resource.status}</Text>
+                                  <Text style={styles.linkedDocumentMeta}>{resource.externalUrl ? 'YouTube video' : 'E-portfolio document'} • {resource.status}</Text>
+                                  <Text style={styles.linkedDocumentMeta}>{resource.relatedSubjectName || 'Unassigned subject'}</Text>
                                 </View>
                                 <TouchableOpacity
                                   style={styles.inlineSaveButton}
@@ -3401,9 +3241,7 @@ export default function TeacherHomeScreen() {
 
                               {resource.description ? <Text style={styles.linkedDocumentDescription}>{resource.description}</Text> : null}
 
-                              <Text style={styles.linkedDocumentMeta}>
-                                {resource.fileName} • {formatFileSize(resource.fileSizeBytes)} • {formatDocumentDate(resource.createdAt)}
-                              </Text>
+                              {resource.fileName ? <Text style={styles.linkedDocumentMeta}>{resource.fileName} • {formatFileSize(resource.fileSizeBytes)} • {formatDocumentTimestamp(resource.createdAt)}</Text> : null}
                             </View>
                           ))}
                         </View>
@@ -3423,7 +3261,7 @@ export default function TeacherHomeScreen() {
                   <View key={`${performanceSessionId}-${performanceLearner?.id ?? 'teacher-graph'}`} style={styles.graphModalCard}>
                     <View style={styles.graphModalHeader}>
                       <Text style={styles.graphModalTitle}>
-                        {performanceAction === 'viewCluster' ? 'Cluster points trend' : 'Subject performance trend'}
+                        {performanceAction === 'viewCluster' ? 'Cluster performance by grade' : 'Subject performance trend'}
                       </Text>
                       <TouchableOpacity
                         style={styles.graphCloseButton}
@@ -3435,82 +3273,16 @@ export default function TeacherHomeScreen() {
 
                     {performanceAction === 'viewCluster' ? (
                       <ScrollView style={styles.graphModalScroll} contentContainerStyle={styles.graphModalContent}>
-                        <View style={styles.summaryCard}>
-                          <Text style={styles.summaryTitle}>Target career</Text>
-                          <Text style={styles.summaryValue}>{learnerCareerMap[learner.id] || 'Not set'}</Text>
-                        </View>
-
-                        {(() => {
-                          const series = getHistoricalClusterSeries(learner)
-                            .map((point: any) => ({
-                              label: point.label,
-                              value: point.value,
-                              target: point.target,
-                            }))
-                            .filter((point: any) => Number.isFinite(Number(point.value)));
-                          const allVals = series.flatMap((p: any) => [Number(p.value || 0), Number(p.target || 0)]).filter((v: any) => Number.isFinite(v));
-                          const minVal = allVals.length ? Math.min(...allVals) : 1;
-                          const maxVal = allVals.length ? Math.max(...allVals) : 100;
-                          const profile = learnerProfileMap[learner.id] || {};
-                          const requirement = getSelectedCourseClusterRequirement(profile);
-                          // eslint-disable-next-line no-console
-                          console.log('[DEBUG_CLUSTER_SERIES]', JSON.stringify({ learnerId: learner.id, series, requirement, domain: { min: minVal, max: maxVal } }, null, 2));
-                          return renderLineChart(series, '#93c5fd', '#1d4ed8', 100, requirement);
-                        })()}
-
-                        <View style={styles.summaryCard}>
-                          <Text style={styles.summaryTitle}>Cluster points by year</Text>
-                          {(() => {
-                            const series = getHistoricalClusterSeries(learner).filter((point: any) => Number.isFinite(Number(point.value)));
-                            if (!series || series.length === 0) return <Text style={styles.summaryValue}>No valid cluster points recorded yet.</Text>;
-                            return <Text style={styles.summaryValue}>{series.map((point: any) => `Grade ${point.label}: ${point.value}`).join(' • ')}</Text>;
-                          })()}
-                        </View>
-
-                        <View style={styles.summaryCard}>
-                          <Text style={styles.summaryTitle}>Average cluster points</Text>
-                          {(() => {
-                            const series = getHistoricalClusterSeries(learner).filter((point: any) => Number.isFinite(Number(point.value)));
-                            if (!series || series.length === 0) return <Text style={styles.summaryValue}>N/A</Text>;
-                            const avgCluster = Math.round(series.reduce((sum: number, point: any) => sum + Number(point.value || 0), 0) / series.length);
-                            return <Text style={styles.summaryValue}>{avgCluster}</Text>;
-                          })()}
-                        </View>
-
-                        <View style={styles.summaryCard}>
-                          <Text style={styles.summaryTitle}>Average deviation</Text>
-                          {(() => {
-                            const series = getHistoricalClusterSeries(learner).filter((point: any) => Number.isFinite(Number(point.value)));
-                            if (!series || series.length === 0) return <Text style={styles.summaryValue}>N/A</Text>;
-                            const avgDeviation = Math.round(
-                              series.reduce((sum: number, point: any) => {
-                                const value = Number(point.value || 0);
-                                const target = Number(point.target || 100);
-                                return sum + Number(point.deviation || 0);
-                              }, 0) / series.length,
-                            );
-                            return <Text style={styles.summaryValue}>{avgDeviation}</Text>;
-                          })()}
-                        </View>
-
-                        <View style={styles.summaryCard}>
-                          <Text style={styles.summaryTitle}>Deviation from chosen course requirement</Text>
-                          {(() => {
-                            const profile = learnerProfileMap[learner.id] || {};
-                            const requirement = getSelectedCourseClusterRequirement(profile);
-                            const series = getHistoricalClusterSeries(learner)
-                              .filter((point: any) => Number.isFinite(Number(point.value)) && Number(point.label) >= 10 && Number(point.label) <= 12);
-                            const deviations = requirement === null
-                              ? []
-                              : series
-                                .map((point: any) => ({ label: point.label, deviation: calculateCourseClusterDeviation(Number(point.value), requirement) }))
-                                .filter((point: any) => point.deviation !== null);
-
-                            if (requirement === null) return <Text style={styles.summaryValue}>Course cluster points are not available.</Text>;
-                            if (deviations.length === 0) return <Text style={styles.summaryValue}>No Grade 10–12 cluster points recorded yet.</Text>;
-                            return <Text style={styles.summaryValue}>Required: {requirement} points • {deviations.map((item: any) => `Grade ${item.label}: ${item.deviation.points >= 0 ? '+' : ''}${item.deviation.points} points (${item.deviation.percentage >= 0 ? '+' : ''}${item.deviation.percentage}%)`).join(' • ')}</Text>;
-                          })()}
-                        </View>
+                        <LearnerClusterPerformanceGraph
+                          learner={learner}
+                          profile={{
+                            ...(learnerProfileMap[learner.id] || {}),
+                            selectedSubjects: Array.isArray(learnerProfileMap[learner.id]?.selectedSubjects)
+                              ? learnerProfileMap[learner.id].selectedSubjects
+                              : learnerSubjectsMap[learner.id] || [],
+                          }}
+                          targetCareer={learnerCareerMap[learner.id]}
+                        />
 
                         {/* Learner comments shown below the cluster chart */}
                         <View style={{ marginTop: 12 }}>
@@ -3528,61 +3300,139 @@ export default function TeacherHomeScreen() {
 
                     {performanceAction === 'viewSubjects' ? (
                       <ScrollView style={styles.graphModalScroll} contentContainerStyle={styles.graphModalContent}>
-                        {(() => {
-                          const subjectSeries = getHistoricalSubjectSeries(learner);
-                          if (subjectSeries.length === 0) {
-                            return <Text style={styles.empty}>No subject data is available yet.</Text>;
-                          }
-
-                          const allSeries = subjectSeries
-                            .flatMap((subject: any) => Array.isArray(subject.values) ? subject.values : [])
-                            .filter((point: any) => Number.isFinite(Number(point?.value)) && Number.isFinite(Number(point?.target)) && Number(point.target) > 0);
-
-                          const maxValue = allSeries.length
-                            ? Math.max(100, ...allSeries.map((point: any) => Math.max(Number(point.value || 0), Number(point.target || 0))))
-                            : 100;
-
-                          return subjectSeries.map((subject, index) => {
-                            const visibleValues = (subject.values || [])
-                              .map((point: any) => ({
-                                label: point.label,
-                                value: Number(point.value),
-                                target: Number(point.target),
-                              }))
-                              .filter((point: any) => Number.isFinite(point.value) && Number.isFinite(point.target) && point.target > 0);
-
-                            const deviations = visibleValues.map((point: any) => ({
-                              label: point.label,
-                              deviation: Number(Math.round((calculateDeviationPercentage(point.value, point.target) || 0) * 100) / 100),
-                            }));
-
-                            const averageDeviation = deviations.length
-                              ? Math.round(
-                                  deviations.reduce((sum: number, item: any) => sum + Number(item.deviation || 0), 0) / deviations.length,
-                                )
-                              : null;
-
-                            return (
-                              <View key={`${subject.label}-${index}`} style={styles.chartSection}>
-                                <Text style={styles.chartSectionTitle}>{subject.label}</Text>
-                                {visibleValues.length > 0 ? renderLineChart(visibleValues, '#bfdbfe', '#2563eb', maxValue) : <Text style={styles.summaryValue}>No valid marks or targets to plot yet.</Text>}
-                                <View style={{ marginTop: 8 }}>
-                                  <Text style={styles.chartSectionTitle}>Annual deviation</Text>
-                                  {deviations.length > 0 ? (
-                                    <Text style={styles.summaryValue}>
-                                      {deviations.map((item: any) => `Grade ${item.label}: ${item.deviation}%`).join(' • ')}
-                                    </Text>
-                                  ) : (
-                                    <Text style={styles.summaryValue}>No deviation recorded — no target or achieved mark set for this subject yet.</Text>
-                                  )}
-                                  <Text style={[styles.summaryValue, { marginTop: 4 }]}>Average deviation: {averageDeviation === null ? 'N/A' : `${averageDeviation}%`}</Text>
-                                </View>
-                              </View>
+                        <SubjectPerformanceGraph
+                          learner={learner}
+                          profile={{
+                            ...(learnerProfileMap[learner.id] || {}),
+                            selectedSubjects: Array.isArray(learnerProfileMap[learner.id]?.selectedSubjects)
+                              ? learnerProfileMap[learner.id].selectedSubjects
+                              : learnerSubjectsMap[learner.id] || [],
+                          }}
+                          renderSubjectActions={(subject) => {
+                            const learnerSubject = (learnerSubjectsMap[learner.id] || []).find((item) =>
+                              (subject.id && item.id === subject.id) || item.name === subject.label || item.code === subject.code,
                             );
-                          });
-                        })()}
+                            const subjectId = subject.id || learnerSubject?.id || '';
+                            const subjectResources = (learnerDocumentMap[learner.id] || []).filter((resource) => resource.relatedSubjectId === subjectId);
+                            const documentCount = subjectResources.filter((resource) => !resource.externalUrl && resource.resourceType !== 'video').length;
+                            const videoCount = subjectResources.filter((resource) => Boolean(resource.externalUrl) || resource.resourceType === 'video').length;
+                            return (
+                                <View style={styles.subjectEvidenceActions}>
+                                  <TouchableOpacity
+                                    style={styles.subjectEvidenceButton}
+                                    onPress={() => setEvidenceViewer({ subjectId, subjectName: subject.label, kind: 'document' })}
+                                    disabled={!subjectId}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`View ${documentCount} documents for ${subject.label}`}
+                                  >
+                                    <Ionicons name="document-text-outline" size={18} color="#1d4ed8" />
+                                    <Text style={[styles.subjectEvidenceButtonText, !documentCount && styles.subjectEvidenceButtonDisabled]}>Documents ({documentCount})</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={styles.subjectEvidenceButton}
+                                    onPress={() => setEvidenceViewer({ subjectId, subjectName: subject.label, kind: 'video' })}
+                                    disabled={!subjectId}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`View ${videoCount} videos for ${subject.label}`}
+                                  >
+                                    <Ionicons name="videocam-outline" size={18} color="#b91c1c" />
+                                    <Text style={[styles.subjectEvidenceButtonText, !videoCount && styles.subjectEvidenceButtonDisabled]}>Videos ({videoCount})</Text>
+                                  </TouchableOpacity>
+                                </View>
+                            );
+                          }}
+                        />
                       </ScrollView>
                     ) : null}
+                  </View>
+                </View>
+              </Modal>
+
+              <Modal
+                transparent
+                visible={videoLinkModalVisible && performanceLearner?.id === learner.id}
+                animationType="fade"
+                onRequestClose={() => setVideoLinkModalVisible(false)}
+              >
+                <View style={styles.dialogBackdrop}>
+                  <View style={styles.dialogCard}>
+                    <Text style={styles.dialogTitle}>Add subject video</Text>
+                    <Text style={styles.dialogText}>Save a YouTube video link under {videoLinkSubject?.name || 'this subject'}.</Text>
+                    <Text style={styles.detailLabel}>Video title</Text>
+                    <TextInput
+                      style={styles.subjectPerformanceInput}
+                      value={videoTitleInput}
+                      onChangeText={setVideoTitleInput}
+                      placeholder="Video title"
+                      placeholderTextColor="#444"
+                    />
+                    <Text style={styles.detailLabel}>YouTube URL</Text>
+                    <TextInput
+                      style={styles.subjectPerformanceInput}
+                      value={videoLinkInput}
+                      onChangeText={setVideoLinkInput}
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      placeholderTextColor="#444"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="url"
+                    />
+                    <View style={styles.dialogActions}>
+                      <TouchableOpacity style={styles.secondaryButton} onPress={() => setVideoLinkModalVisible(false)}>
+                        <Text style={styles.secondaryButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.primaryButton, savingVideoLink && styles.primaryButtonDisabled]} onPress={() => void saveYouTubeLink()} disabled={savingVideoLink}>
+                        <View style={styles.buttonContentRow}>
+                          {savingVideoLink ? <ActivityIndicator size="small" color="#ffffff" /> : null}
+                          <Text style={styles.primaryButtonText}>{savingVideoLink ? 'Saving...' : 'Save video'}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </Modal>
+
+              <Modal
+                transparent
+                visible={Boolean(evidenceViewer && performanceLearner?.id === learner.id)}
+                animationType="fade"
+                onRequestClose={() => setEvidenceViewer(null)}
+              >
+                <View style={styles.dialogBackdrop}>
+                  <View style={[styles.dialogCard, styles.evidenceViewerCard]}>
+                    <Text style={styles.dialogTitle}>{evidenceViewer?.kind === 'video' ? 'Subject videos' : 'Subject documents'}</Text>
+                    <Text style={styles.dialogText}>{evidenceViewer?.subjectName}</Text>
+                    <ScrollView style={styles.evidenceViewerList}>
+                      {(() => {
+                        const resources = (learnerDocumentMap[learner.id] || [])
+                          .filter((resource) => resource.relatedSubjectId === evidenceViewer?.subjectId)
+                          .filter((resource) => evidenceViewer?.kind === 'video' ? Boolean(resource.externalUrl) || resource.resourceType === 'video' : !resource.externalUrl && resource.resourceType !== 'video');
+                        if (resources.length === 0) {
+                          return <Text style={styles.empty}>No {evidenceViewer?.kind === 'video' ? 'videos' : 'documents'} are linked to this subject yet.</Text>;
+                        }
+                        return resources.map((resource) => (
+                          <View key={resource.id} style={styles.linkedDocumentCard}>
+                            <View style={styles.linkedDocumentHeader}>
+                              <View style={styles.linkedDocumentTextBlock}>
+                                <Text style={styles.linkedDocumentTitle}>{resource.title}</Text>
+                                <Text style={styles.linkedDocumentMeta}>{formatDocumentTimestamp(resource.createdAt)}</Text>
+                              </View>
+                              <TouchableOpacity style={styles.inlineSaveButton} onPress={() => void openLearnerDocument(resource)} disabled={openingDocumentId === resource.id}>
+                                <Ionicons name={evidenceViewer?.kind === 'video' ? 'play-outline' : 'open-outline'} size={18} color="#ffffff" />
+                                <Text style={styles.inlineSaveButtonText}>{openingDocumentId === resource.id ? '…' : 'Open'}</Text>
+                              </TouchableOpacity>
+                            </View>
+                            {resource.description ? <Text style={styles.linkedDocumentDescription}>{resource.description}</Text> : null}
+                            {resource.fileName ? <Text style={styles.linkedDocumentMeta}>{resource.fileName} • {formatFileSize(resource.fileSizeBytes)}</Text> : null}
+                          </View>
+                        ));
+                      })()}
+                    </ScrollView>
+                    <View style={styles.dialogActions}>
+                      <TouchableOpacity style={styles.secondaryButton} onPress={() => setEvidenceViewer(null)}>
+                        <Text style={styles.secondaryButtonText}>Close</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
               </Modal>
@@ -3592,33 +3442,84 @@ export default function TeacherHomeScreen() {
                   <Text style={styles.modalTitle}>Add subject to {selectedLearnerForSubjects?.fullName || 'learner'}</Text>
                   <Text style={styles.modalSubtitle}>Grade {selectedLearnerForSubjects?.gradeLevel || 'Not set'}</Text>
 
+                  {(() => {
+                    const assignmentGrade = selectedLearnerForSubjects?.gradeLevel || learner.gradeLevel;
+                    const gradeNumber = Number(String(assignmentGrade || '').replace(/\D/g, '')) || 0;
+                    const targetState = getSeniorCourseTargetState(learner.id);
+                    if (gradeNumber < 10 || targetState.requirements.length === 0 || targetState.targetsSaved) return null;
+
+                    return (
+                      <View style={styles.subjectListBox}>
+                        <Text style={styles.subjectListTitle}>Course cluster subjects · target marks</Text>
+                        {targetState.requiredSubjects.map(({ requirement, subject }) => {
+                          const subjectId = requirement.subjectId;
+                          const subjectName = subject?.name || requirement.subjectName || subjectId;
+                          return (
+                            <View key={subjectId} style={styles.courseTargetRow}>
+                              <View style={styles.courseTargetInfo}>
+                                <Text style={styles.subjectBadgeText}>{subjectName}{subject?.code ? ` (${subject.code})` : ''}</Text>
+                                <Text style={styles.subjectBadgeMeta}>
+                                  {requirement.operator === 'OR' ? 'Course alternative' : 'Course required'}
+                                  {Number.isInteger(requirement.minimumPoints) ? ` · minimum ${requirement.minimumPoints} CBE points` : ''}
+                                </Text>
+                              </View>
+                              <TextInput
+                                style={[styles.subjectPerformanceInput, styles.courseTargetInput, { fontWeight: 'bold', color: '#222' }]}
+                                value={courseTargetMarkDrafts[subjectId] ?? (subject?.targetMarks === null || subject?.targetMarks === undefined ? '' : String(subject.targetMarks))}
+                                onChangeText={(value) => setCourseTargetMarkDrafts((current) => ({ ...current, [subjectId]: value }))}
+                                placeholder="Enter target marks"
+                                placeholderTextColor="#444"
+                                keyboardType="numeric"
+                              />
+                            </View>
+                          );
+                        })}
+                        <TouchableOpacity
+                          style={[styles.primaryButton, savingSubject && styles.primaryButtonDisabled]}
+                          onPress={() => void saveSeniorCourseTargets(learner)}
+                          disabled={savingSubject}
+                        >
+                          <View style={styles.buttonContentRow}>
+                            {savingSubject ? <ActivityIndicator size="small" color="#ffffff" /> : null}
+                            <Text style={styles.primaryButtonText}>{savingSubject ? 'Saving...' : 'Save course target marks'}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })()}
+
                   <View style={styles.subjectListBox}>
                     <Text style={styles.subjectListTitle}>Already added subjects</Text>
                     {(learnerSubjectsMap[learner.id] || []).length === 0 ? (
-                      <Text style={styles.empty}>No subjects added yet.</Text>
+                      <Text style={styles.empty}>{subjectGroupsLoading ? 'Loading course-required subjects...' : 'No subjects added yet.'}</Text>
                     ) : (
-                      (learnerSubjectsMap[learner.id] || []).map((subject) => (
-                        <View key={subject.id} style={styles.subjectBadge}>
-                          <Text style={styles.subjectBadgeText}>{subject.name}</Text>
-                          {typeof subject.targetMarks === 'number' ? (
-                            <Text style={styles.subjectBadgeMeta}>Target: {subject.targetMarks}</Text>
-                          ) : null}
-                          <TouchableOpacity
-                            accessibilityLabel={`Remove ${subject.name} from ${selectedLearnerForSubjects?.fullName || 'learner'}`}
-                            style={styles.removeSubjectButton}
-                            onPress={() => void removeSubjectFromLearner(learner.id, subject.id)}
-                          >
-                            <Text style={styles.removeSubjectButtonText}>×</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))
+                      (learnerSubjectsMap[learner.id] || []).map((subject) => {
+                        const profile = learnerProfileMap[learner.id] || {};
+                        const supportProfile = parseLearnerSupportProfile(profile.supportProfile) || profile;
+                        const requiredItem = parseCourseClusterRequirements(supportProfile.clusterRequirements)?.subjectSequence
+                          ?.find((item) => item.subjectId === subject.id);
+                        return (
+                          <AddedSubjectBadge
+                            key={subject.id}
+                            subject={subject}
+                            requirementType={requiredItem ? (requiredItem.operator === 'OR' ? 'alternative' : 'mandatory') : undefined}
+                            minimumPoints={requiredItem?.minimumPoints}
+                            onRemove={!requiredItem ? () => void removeSubjectFromLearner(learner.id, subject.id) : undefined}
+                            removeLabel={`Remove ${subject.name} from ${selectedLearnerForSubjects?.fullName || 'learner'}`}
+                          />
+                        );
+                      })
                     )}
                   </View>
 
-                  {subjectSelectionStep === 'category' ? (
+                  {Number(String(selectedLearnerForSubjects?.gradeLevel || learner.gradeLevel || '').replace(/\D/g, '')) >= 10 &&
+                    getSeniorCourseTargetState(learner.id).requirements.length > 0 &&
+                    !getSeniorCourseTargetState(learner.id).targetsSaved ? (
+                    <Text style={styles.empty}>Save target marks for every course-required subject to unlock additional subjects.</Text>
+                  ) : subjectSelectionStep === 'category' ? (
                     <View style={styles.categoryList}>
                       {(() => {
-                        const grade = String(learner.gradeLevel || '').trim();
+                        const grade = String(selectedLearnerForSubjects?.gradeLevel || learner.gradeLevel || '').trim();
                         const normalizedGrade = grade.replace(/\D/g, '');
                         const options = ['Senior Secondary', 'Junior Secondary', 'Vocational SNE'];
 
@@ -3647,7 +3548,17 @@ export default function TeacherHomeScreen() {
                       ))}
                     </View>
                   ) : subjectSelectionStep === 'subjects' ? (
-                    subjectGroupsLoading ? (
+                    <View>
+                      <TextInput
+                        style={[styles.input, { fontWeight: 'bold', color: '#222' }]}
+                        value={subjectFilterQuery}
+                        onChangeText={setSubjectFilterQuery}
+                        placeholder="Search subjects by name or code"
+                        placeholderTextColor="#444"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                    {subjectGroupsLoading ? (
                       <View style={styles.loadingBox}>
                         <ActivityIndicator size="small" color="#1d4ed8" />
                         <Text style={styles.modalLoadingText}>Loading subjects...</Text>
@@ -3665,14 +3576,19 @@ export default function TeacherHomeScreen() {
                           const normalizedGroupTitle = group.title === 'Electives' || /PATHWAY|pathway/i.test(group.title)
                             ? 'Electives'
                             : group.title;
+                          const assignedSubjects = learnerSubjectsMap[learner.id] || [];
+                          const filterQuery = subjectFilterQuery.trim().toLowerCase();
+                          const availableSubjects = group.items.filter((subject) => !assignedSubjects.some((assigned) =>
+                            assigned.id === subject.id || assigned.name.trim().toLowerCase() === subject.name.trim().toLowerCase(),
+                          )).filter((subject) => !filterQuery || `${subject.name} ${subject.code}`.toLowerCase().includes(filterQuery));
 
                           return (
                             <View key={normalizedGroupTitle || group.title} style={styles.subjectGroup}>
                               <Text style={styles.subjectGroupTitle}>{normalizedGroupTitle}</Text>
-                              {group.items.length === 0 ? (
-                                <Text style={styles.empty}>No subjects in this category yet.</Text>
+                              {availableSubjects.length === 0 ? (
+                                <Text style={styles.empty}>{filterQuery ? 'No unassigned subjects match that name or code.' : 'No subjects in this category yet.'}</Text>
                               ) : (
-                                group.items.map((subject) => (
+                                availableSubjects.map((subject) => (
                                   <TouchableOpacity
                                     key={`${normalizedGroupTitle}-${subject.id}`}
                                     style={styles.subjectItem}
@@ -3691,7 +3607,8 @@ export default function TeacherHomeScreen() {
                           );
                         })}
                       </ScrollView>
-                    )
+                    )}
+                    </View>
                   ) : (
                     <View>
                       <Text style={styles.detailLabel}>Selected subject</Text>
@@ -3761,6 +3678,44 @@ export default function TeacherHomeScreen() {
       </SectionCard>
 
     </ScrollView>
+  );
+}
+
+function AddedSubjectBadge({
+  subject,
+  requirementType,
+  minimumPoints,
+  onRemove,
+  removeLabel,
+}: {
+  subject: { name: string; code?: string; targetMarks?: number | null };
+  requirementType?: 'alternative' | 'mandatory';
+  minimumPoints?: number;
+  onRemove?: () => void;
+  removeLabel: string;
+}) {
+  const metadata = requirementType
+    ? `${requirementType === 'alternative' ? 'Alternative' : 'Mandatory'}${Number.isInteger(minimumPoints) ? ` · Min ${minimumPoints} CBE pts` : ''}${typeof subject.targetMarks === 'number' ? ` · Target ${subject.targetMarks}` : ''}`
+    : typeof subject.targetMarks === 'number' ? `Target: ${subject.targetMarks}` : 'Target not set';
+
+  return (
+    <View style={styles.subjectBadge}>
+      <View style={styles.subjectBadgeContent}>
+        <Text numberOfLines={1} style={styles.subjectBadgeText}>
+          {subject.name}{subject.code ? ` (${subject.code})` : ''}
+        </Text>
+        <Text numberOfLines={1} style={styles.subjectBadgeMeta}>{metadata}</Text>
+      </View>
+      {onRemove ? (
+        <TouchableOpacity accessibilityLabel={removeLabel} style={styles.removeSubjectButton} onPress={onRemove}>
+          <Text style={styles.removeSubjectButtonText}>×</Text>
+        </TouchableOpacity>
+      ) : requirementType ? (
+        <View style={styles.requiredSubjectMarker}>
+          <Text style={styles.requiredSubjectMarkerText}>✓</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -3935,6 +3890,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '600',
   },
+  courseRequirementsSummary: {
+    marginTop: 4,
+  },
+  optionRequirementsText: {
+    marginTop: 4,
+    color: '#334155',
+    fontSize: 12,
+    lineHeight: 17,
+  },
   genderRow: {
     flexDirection: 'row',
     gap: 8,
@@ -3979,6 +3943,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 18,
   },
+  evidenceViewerCard: {
+    maxHeight: '82%',
+  },
+  evidenceViewerList: {
+    maxHeight: 380,
+    marginBottom: 12,
+  },
   dialogTitle: {
     fontSize: 20,
     fontWeight: '800',
@@ -4013,11 +3984,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
-  },
-  ePortfolioUploadButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    marginTop: 6,
   },
   primaryButtonText: {
     color: '#ffffff',
@@ -4167,15 +4133,16 @@ const styles = StyleSheet.create({
   },
   subjectBadge: {
     backgroundColor: '#e0f2fe',
-    borderRadius: 999,
+    borderRadius: 10,
+    minHeight: 44,
     paddingVertical: 6,
     paddingHorizontal: 10,
     marginBottom: 6,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
   },
+  subjectBadgeContent: { flex: 1, minWidth: 0, gap: 2 },
   subjectBadgeText: {
     fontSize: 12,
     fontWeight: '700',
@@ -4186,6 +4153,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#1d4ed8',
     fontWeight: '700',
+  },
+  requiredSubjectMarker: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#bfdbfe', alignItems: 'center', justifyContent: 'center' },
+  requiredSubjectMarkerText: { color: '#1d4ed8', fontSize: 12, fontWeight: '800' },
+  courseTargetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  courseTargetInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  courseTargetInput: {
+    width: 88,
+    marginTop: 0,
   },
   removeSubjectButton: {
     width: 22,
@@ -4442,6 +4428,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
     gap: 8,
   },
   subjectPerformanceInfo: {
@@ -4453,6 +4440,34 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
     gap: 4,
     width: 72,
+  },
+  subjectEvidenceActions: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  subjectEvidenceButton: {
+    minHeight: 34,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 8,
+  },
+  subjectEvidenceButtonText: {
+    color: '#1e293b',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  subjectEvidenceButtonDisabled: {
+    color: '#94a3b8',
   },
   subjectPerformanceInput: {
     width: '100%',
