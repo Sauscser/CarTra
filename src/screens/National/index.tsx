@@ -11,19 +11,27 @@ import LearnerPerformanceGraphs from '../../components/shared/LearnerPerformance
 import SubjectPerformanceGraph from '../../components/shared/SubjectPerformanceGraph';
 import SubjectEvidenceActions from '../../components/shared/SubjectEvidenceActions';
 import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
-import { getLearnerProfile, listCoreSubjects, listGrade12ResultSummaries, listLearnerDocumentResources, listLearnerProfiles, listOrgHierarchies, listSubjects, listSupportSubjects, listTertiaryCourses, listTertiaryInstitutionProfiles, listUsers } from '../../graphql/queries';
-import calculateHistoricalClusterSeries, { calculateDeviationPercentage, getCbeAchievementLevel, getCourseRequirementGroups, hasCompleteCourseSubjectRequirements, parseCourseClusterRequirements } from '../../utils/cluster';
+import NationalCbeAnalytics from '../../components/shared/NationalCbeAnalytics';
+import { getLearnerProfile, learnerSubjectPerformancesByNationGrade, listNationalCbeRollupsByGrade, listCoreSubjects, listGrade12ResultSummaries, listLearnerDocumentResources, listLearnerProfiles, listOrgHierarchies, listSubjects, listSupportSubjects, listTertiaryCourses, listTertiaryInstitutionProfiles, listUsers } from '../../graphql/queries';
+import calculateHistoricalClusterSeries, { CBE_ATTEMPTED_POINTS_MAX, calculateDeviationPercentage, getCbeAchievementLevel, getCourseRequirementGroups, hasCompleteCourseScoringData, hasValidCbeAchievementRanges, parseCbeAchievementRanges, parseCourseClusterRequirements } from '../../utils/cluster';
 import { resolveLearnerCareerTarget } from '../../utils/learnerCareer';
+import { loadSupportSubjectIds } from '../../hooks/useSupportSubjectFilter';
+import { buildHistoricalPerformanceFactsFromProfiles, buildNationalCbeRollupsFromFacts } from '../../utils/nationalCbeAnalytics';
 import { NationalOfficerSetupContent } from './NationalOfficerSetupScreen';
 import { NationalCatalogContent, NationalRegionsContent } from './NationalHomeScreen';
+import CbeAchievementRangesScreen from './CbeAchievementRangesScreen';
+import CbeJurisdictionAnalytics from '../../components/shared/CbeJurisdictionAnalytics';
+import LearnerFollowUpDashboard from '../../components/shared/LearnerFollowUpDashboard';
+import JurisdictionTransferManager from '../../components/shared/JurisdictionTransferManager';
 
-type NationalScreenKey = 'home' | 'setup' | 'regions' | 'catalog' | 'performance' | 'deviations';
+type NationalScreenKey = 'home' | 'setup' | 'regions' | 'catalog' | 'cbeRanges' | 'transfers' | 'performance' | 'deviations' | 'analytics' | 'followUp';
 
 type NationalEntity = {
   id: string;
   code: string;
   name: string;
   assignedOfficerEmail?: string | null;
+  metadata?: Record<string, any> | null;
 };
 
 type NationalRegionEntity = { id: string; code: string; name: string };
@@ -48,9 +56,29 @@ const NATIONAL_ACTIONS: Array<{ key: Exclude<NationalScreenKey, 'home'>; title: 
     description: 'Add subjects, tracks, pathways, competencies, and core values.',
   },
   {
+    key: 'cbeRanges',
+    title: 'CBE and Subject Settings',
+    description: 'Revise national mark ranges and search or update subject records.',
+  },
+  {
+    key: 'transfers',
+    title: 'Regional Officer Transfers',
+    description: 'Transfer an existing regional officer to another region in this nation.',
+  },
+  {
     key: 'performance',
     title: 'Performance Summary',
     description: 'National Grade 12 outcome trends, tertiary coverage, and career targets.',
+  },
+  {
+    key: 'analytics',
+    title: 'National CBE Analytics',
+    description: 'Grade-level achievement bands and learner and tertiary-target deviation distributions.',
+  },
+  {
+    key: 'followUp',
+    title: 'Progress Follow-up',
+    description: 'Find schools, classes, and learners with outstanding targets, promotions, and assessment scores.',
   },
   {
     key: 'deviations',
@@ -131,11 +159,11 @@ function NationalPerformanceSummaryContent({
                           <View key={course.id} style={styles.courseRow}>
                             <Text style={styles.catalogTitle}>{course.courseName}</Text>
                             <Text style={styles.catalogMeta}>Code: {course.courseCode || 'N/A'}</Text>
-                            {hasCompleteCourseSubjectRequirements(course.clusterRequirements) ? (
+                            {hasCompleteCourseScoringData(course.clusterRequirements) ? (
                               <Text style={styles.catalogMeta}>
-                                CBE requirements (score max {8 * getCourseRequirementGroups(course.clusterRequirements).length}): {getCourseRequirementGroups(course.clusterRequirements).map((group: any[]) => group.map((item) => `${item.subjectName || item.subjectId} min ${item.minimumPoints ?? '?'}${Number.isInteger(item.minimumPoints) ? ` ${getCbeAchievementLevel(Number(item.minimumPoints))}` : ''}`).join(' OR ')).join(' · ')}
+                                CBE requirements (score max {8 * getCourseRequirementGroups(course.clusterRequirements).length}; seven-best minimum {parseCourseClusterRequirements(course.clusterRequirements)?.bestSubjectsMinimumPoints}/{CBE_ATTEMPTED_POINTS_MAX}): {getCourseRequirementGroups(course.clusterRequirements).map((group: any[]) => group.map((item) => `${item.subjectName || item.subjectId} min ${item.minimumPoints ?? '?'}${Number.isInteger(item.minimumPoints) ? ` ${getCbeAchievementLevel(Number(item.minimumPoints))}` : ''}`).join(' OR ')).join(' · ')}
                               </Text>
-                            ) : <Text style={styles.catalogMeta}>Not assignable: CBE subject groups or per-subject minima are missing.</Text>}
+                            ) : <Text style={styles.catalogMeta}>Not assignable: cluster subject minima, tertiary seven-best minimum, or saved national CBE mark ranges are missing.</Text>}
                           </View>
                         ))
                       ) : (
@@ -308,6 +336,11 @@ export default function NationalOfficeScreen() {
   const [nationalSubCounties, setNationalSubCounties] = useState<NationalSubCountyEntity[]>([]);
   const [nationalSchools, setNationalSchools] = useState<NationalSchoolEntity[]>([]);
   const [nationalLearners, setNationalLearners] = useState<Array<{ id: string; fullName: string; gradeLevel?: string | null; classCode?: string | null; assessmentNumber?: string | null; regionCode?: string | null; countyCode?: string | null; subCountyCode?: string | null; schoolCode?: string | null }>>([]);
+  const [nationalCbeRollups, setNationalCbeRollups] = useState<any[]>([]);
+  const [nationalSupportSubjectIds, setNationalSupportSubjectIds] = useState<ReadonlySet<string>>(new Set());
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsNotice, setAnalyticsNotice] = useState('');
+  const [analyticsRequestedNation, setAnalyticsRequestedNation] = useState<string | null>(null);
   const [nationalCareerSummary, setNationalCareerSummary] = useState({
     totalSummaries: 0,
     metTarget: 0,
@@ -355,6 +388,12 @@ export default function NationalOfficeScreen() {
       void loadTertiaryCatalog();
     }
   }, [nation?.code]);
+
+  useEffect(() => {
+    if (activeScreen === 'analytics' && nation?.code && analyticsRequestedNation !== nation.code && !analyticsLoading) {
+      void loadNationalAnalytics();
+    }
+  }, [activeScreen, nation?.code, analyticsRequestedNation, analyticsLoading]);
 
   useEffect(() => {
     if (selectedRegionCode) void loadNationalCounties(selectedRegionCode);
@@ -418,6 +457,9 @@ export default function NationalOfficeScreen() {
         code: matchedNation.code,
         name: matchedNation.name,
         assignedOfficerEmail: matchedNation.assignedOfficerEmail,
+        metadata: typeof matchedNation.metadata === 'string'
+          ? (() => { try { return JSON.parse(matchedNation.metadata); } catch { return {}; } })()
+          : matchedNation.metadata || {},
       });
     } catch {
       setNation(null);
@@ -809,6 +851,121 @@ export default function NationalOfficeScreen() {
     }
   };
 
+  const loadNationalAnalytics = async () => {
+    if (!nation?.code) return;
+    try {
+      setAnalyticsRequestedNation(nation.code);
+      setAnalyticsLoading(true);
+      setNationalCbeRollups([]);
+      setNationalSupportSubjectIds(new Set());
+      setAnalyticsNotice('');
+      const grades = [7, 8, 9, 10, 11, 12];
+      const [gradeRollups, supportSubjectIds] = await Promise.all([Promise.all(grades.map(async (grade) => {
+        const rollups: any[] = [];
+        let nextToken: string | null = null;
+        do {
+          const page: any = await client.graphql({
+            query: listNationalCbeRollupsByGrade,
+            variables: {
+              nationGradeKey: `${nation.code.trim().toUpperCase()}#${grade}`,
+              limit: 500,
+              nextToken,
+            },
+          } as any);
+          const connection: { items?: any[]; nextToken?: string | null } | undefined = page?.data?.listNationalCbeRollupsByGrade;
+          rollups.push(...(connection?.items || []));
+          nextToken = connection?.nextToken || null;
+        } while (nextToken);
+        return rollups;
+      })), loadSupportSubjectIds()]);
+
+      const rollups = gradeRollups.flat();
+      const gradesWithRollups = new Set(
+        rollups.filter((item) => Number(item.count) > 0).map((item) => Number(String(item.nationGradeKey).split('#').pop())),
+      );
+      const gradesMissingRollups = grades.filter((grade) => !gradesWithRollups.has(grade));
+      if (gradesMissingRollups.length > 0) {
+        const annualFacts = (await Promise.all(gradesMissingRollups.map(async (grade) => {
+          const facts: any[] = [];
+          let nextToken: string | null = null;
+          do {
+            const page: any = await client.graphql({
+              query: learnerSubjectPerformancesByNationGrade,
+              variables: {
+                nationGradeKey: `${nation.code.trim().toUpperCase()}#${grade}`,
+                limit: 500,
+                nextToken,
+              },
+            } as any);
+            const connection: { items?: any[]; nextToken?: string | null } | undefined = page?.data?.learnerSubjectPerformancesByNationGrade;
+            facts.push(...(connection?.items || []));
+            nextToken = connection?.nextToken || null;
+          } while (nextToken);
+          return facts;
+        }))).flat();
+        rollups.push(...buildNationalCbeRollupsFromFacts(annualFacts));
+
+        const regionResult: any = await client.graphql({
+          query: listOrgHierarchies,
+          variables: {
+            filter: {
+              and: [
+                { entityType: { eq: 'region' } },
+                { nationCode: { eq: nation.code } },
+              ],
+            },
+            limit: 500,
+          },
+        } as any);
+        const regionCodes = (regionResult?.data?.listOrgHierarchies?.items || [])
+          .map((region: any) => String(region?.code || '').trim())
+          .filter(Boolean);
+        const learnerProfiles = (await Promise.all(regionCodes.map(async (regionCode: string) => {
+          const profiles: any[] = [];
+          let nextToken: string | null = null;
+          do {
+            const page: any = await client.graphql({
+              query: listLearnerProfiles,
+              variables: {
+                filter: { regionCode: { eq: regionCode } },
+                limit: 500,
+                nextToken,
+              },
+            } as any);
+            const connection: { items?: any[]; nextToken?: string | null } | undefined = page?.data?.listLearnerProfiles;
+            profiles.push(...(connection?.items || []).filter((profile: any) => profile?.nationCode === nation.code));
+            nextToken = connection?.nextToken || null;
+          } while (nextToken);
+          return profiles;
+        }))).flat();
+        const annualFactKeys = new Set(annualFacts
+          .filter((fact) => {
+            const cycle = String(fact?.termOrCycle || '').replace(/[^a-z]/gi, '').toLowerCase();
+            const achievedMark = Number(fact?.achievedMark);
+            return fact?.subjectId &&
+              fact.subjectId !== '__ANNUAL_CLUSTER__' &&
+              cycle === 'endofyear' &&
+              Number(fact.gradeLevel) >= 7 &&
+              Number(fact.gradeLevel) <= 12 &&
+              Number.isFinite(achievedMark) &&
+              achievedMark >= 0;
+          })
+          .map((fact) => `${fact.learnerId}#${fact.gradeLevel}#${fact.subjectId}`));
+        const profileHistoryFacts = buildHistoricalPerformanceFactsFromProfiles(learnerProfiles, new Set(gradesMissingRollups))
+          .filter((fact) => !annualFactKeys.has(`${fact.learnerId}#${fact.gradeLevel}#${fact.subjectId}`));
+        rollups.push(...buildNationalCbeRollupsFromFacts(profileHistoryFacts));
+      }
+      setNationalCbeRollups(rollups);
+      setNationalSupportSubjectIds(supportSubjectIds);
+      setAnalyticsNotice('');
+    } catch (error) {
+      console.warn('loadNationalAnalytics failed', error);
+      setAnalyticsNotice('Could not load complete national learner data. Try again before interpreting these statistics.');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   const modalContent = performanceAction && selectedLearner ? (
     <Modal transparent visible={!!performanceAction} animationType="slide" onRequestClose={resetPerformanceModal}>
       <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center' }}>
@@ -914,6 +1071,10 @@ export default function NationalOfficeScreen() {
         return <NationalRegionsContent />;
       case 'catalog':
         return <NationalCatalogContent />;
+      case 'cbeRanges':
+        return <CbeAchievementRangesScreen />;
+      case 'transfers':
+        return nation ? <JurisdictionTransferManager scope="nation" scopeCodes={{ nationCode: nation.code }} /> : <Text style={styles.empty}>Load the assigned national office before transferring officers.</Text>;
       case 'performance':
         return (
           <NationalPerformanceSummaryContent
@@ -922,6 +1083,46 @@ export default function NationalOfficeScreen() {
             tertiaryCourses={tertiaryCourses}
           />
         );
+      case 'analytics':
+        return (
+          <SectionCard title="National CBE analytics" subtitle="Grade-by-grade distributions from saved learner records." defaultExpanded={true}>
+            {analyticsLoading ? (
+              <View style={styles.loadingState}><ActivityIndicator size="small" color="#176b87" /><Text style={styles.loadingText}>Loading annual performance records...</Text></View>
+            ) : null}
+            {analyticsNotice ? <Text style={styles.notice}>{analyticsNotice}</Text> : null}
+            {!analyticsLoading ? (
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => { setAnalyticsRequestedNation(null); setAnalyticsNotice(''); }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.actionButtonText}>{analyticsNotice.startsWith('Could not load') ? 'Retry annual statistics' : 'Refresh annual statistics'}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {!analyticsLoading && nationalCbeRollups.length ? (
+              <NationalCbeAnalytics
+                rollups={nationalCbeRollups}
+                supportSubjectIds={nationalSupportSubjectIds}
+                ranges={parseCbeAchievementRanges(nation?.metadata?.cbeAchievementRanges)}
+                rangesConfigured={hasValidCbeAchievementRanges(nation?.metadata?.cbeAchievementRanges)}
+                showCumulativeDistribution
+              />
+            ) : null}
+            {!analyticsLoading && !nationalCbeRollups.length && !analyticsNotice.startsWith('Could not load') ? (
+              <Text style={styles.empty}>No annual end-of-year performance data is available for this nation yet.</Text>
+            ) : null}
+            {!analyticsLoading && nation?.code ? <CbeJurisdictionAnalytics scopeType="nation" nationCode={nation.code} /> : null}
+          </SectionCard>
+        );
+      case 'followUp':
+        return nation?.code ? (
+          <LearnerFollowUpDashboard
+            scopeType="nation"
+            scopeCode={nation.code}
+            scopeName={nation.name}
+            nationCode={nation.code}
+          />
+        ) : <Text style={styles.empty}>Load the assigned national office before viewing progress follow-up.</Text>;
       case 'deviations':
         return (
           <NationalDeviationWatchContent
@@ -1044,7 +1245,7 @@ export default function NationalOfficeScreen() {
           </>
         );
     }
-  }, [activeScreen, nationalLearners, learnerCareerMap, client, nationalRegions, nationalCounties, nationalSubCounties, nationalSchools, selectedRegionCode, selectedCountyCode, selectedSubCountyCode, selectedSchoolCode, selectedLearnerGrade, nationalCareerSummary, tertiaryInstitutions, tertiaryCourses, loadLearnerProfile]);
+  }, [activeScreen, nation, nationalLearners, learnerCareerMap, client, nationalRegions, nationalCounties, nationalSubCounties, nationalSchools, selectedRegionCode, selectedCountyCode, selectedSubCountyCode, selectedSchoolCode, selectedLearnerGrade, nationalCareerSummary, tertiaryInstitutions, tertiaryCourses, nationalCbeRollups, analyticsLoading, analyticsNotice, loadLearnerProfile]);
 
   return (
     <SafeAreaView style={styles.container}>

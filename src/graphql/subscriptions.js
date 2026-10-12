@@ -10,6 +10,7 @@ export const onCreateSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -25,6 +26,7 @@ export const onUpdateSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -40,6 +42,7 @@ export const onDeleteSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -57,6 +60,7 @@ export const onCreateCoreSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -74,6 +78,7 @@ export const onUpdateCoreSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -91,6 +96,7 @@ export const onDeleteCoreSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -108,6 +114,7 @@ export const onCreateSupportSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -125,6 +132,7 @@ export const onUpdateSupportSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -142,6 +150,7 @@ export const onDeleteSupportSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -207,6 +216,7 @@ export const onCreateJuniorSubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -224,6 +234,7 @@ export const onUpdateJuniorSubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -241,6 +252,7 @@ export const onDeleteJuniorSubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -306,6 +318,7 @@ export const onCreateSNESubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -323,6 +336,7 @@ export const onUpdateSNESubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -340,6 +354,7 @@ export const onDeleteSNESubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -2890,6 +2905,69 @@ export const onDeleteTermDefinition = /* GraphQL */ `
       startDate
       endDate
       status
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const onCreateAnnualSchoolEnrollmentPlan = /* GraphQL */ `
+  subscription OnCreateAnnualSchoolEnrollmentPlan(
+    $filter: ModelSubscriptionAnnualSchoolEnrollmentPlanFilterInput
+  ) {
+    onCreateAnnualSchoolEnrollmentPlan(filter: $filter) {
+      id
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      academicYear
+      expectedLearnersByGrade
+      declaredByUserId
+      declaredAt
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const onUpdateAnnualSchoolEnrollmentPlan = /* GraphQL */ `
+  subscription OnUpdateAnnualSchoolEnrollmentPlan(
+    $filter: ModelSubscriptionAnnualSchoolEnrollmentPlanFilterInput
+  ) {
+    onUpdateAnnualSchoolEnrollmentPlan(filter: $filter) {
+      id
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      academicYear
+      expectedLearnersByGrade
+      declaredByUserId
+      declaredAt
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const onDeleteAnnualSchoolEnrollmentPlan = /* GraphQL */ `
+  subscription OnDeleteAnnualSchoolEnrollmentPlan(
+    $filter: ModelSubscriptionAnnualSchoolEnrollmentPlanFilterInput
+  ) {
+    onDeleteAnnualSchoolEnrollmentPlan(filter: $filter) {
+      id
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      academicYear
+      expectedLearnersByGrade
+      declaredByUserId
+      declaredAt
       createdAt
       updatedAt
       __typename

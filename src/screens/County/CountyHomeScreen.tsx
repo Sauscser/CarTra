@@ -12,6 +12,9 @@ import SubjectEvidenceActions from '../../components/shared/SubjectEvidenceActio
 import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
 import CourseSubjectPointsGraph from '../../components/shared/CourseSubjectPointsGraph';
 import LearnerClusterTrendGraph from '../../components/shared/LearnerClusterTrendGraph';
+import CbeJurisdictionAnalytics from '../../components/shared/CbeJurisdictionAnalytics';
+import LearnerFollowUpDashboard from '../../components/shared/LearnerFollowUpDashboard';
+import JurisdictionTransferManager from '../../components/shared/JurisdictionTransferManager';
 import calculateHistoricalClusterSeries, { calculateDeviationPercentage, hasCourseSubjectPointRequirements } from '../../utils/cluster';
 import { resolveLearnerCareerTarget } from '../../utils/learnerCareer';
 import { CountySubCountySetupContent } from './CountySubCountySetupScreen';
@@ -818,6 +821,19 @@ function CountyHomeContent() {
           ) : null}
         </SectionCard>
 
+        {county ? <CbeJurisdictionAnalytics
+          scopeType="county"
+          scopeCode={county.code}
+          scopeName={county.name}
+          nationCode={county.nationCode}
+        /> : null}
+        {county?.nationCode ? <LearnerFollowUpDashboard
+          scopeType="county"
+          scopeCode={county.code}
+          scopeName={county.name}
+          nationCode={county.nationCode}
+        /> : null}
+
         <SectionCard title="Sub-counties in this county" subtitle="All sub-counties linked to your assigned county.">
           {!isLoading && subCounties.length === 0 ? (
             <Text style={styles.empty}>No sub-counties are assigned to this county yet.</Text>
@@ -937,6 +953,7 @@ function CountyHomeContent() {
         </SectionCard>
 
         <CountySubCountySetupContent />
+        {county ? <JurisdictionTransferManager scope="county" scopeCodes={{ nationCode: county.nationCode || '', regionCode: county.regionCode || '', countyCode: county.code }} /> : null}
       </ScrollView>
 
       {modalContent}

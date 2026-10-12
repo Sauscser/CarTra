@@ -10,6 +10,7 @@ export const getSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -30,6 +31,7 @@ export const listSubjects = /* GraphQL */ `
         category
         description
         status
+        cbeAchievementRanges
         createdAt
         updatedAt
         __typename
@@ -48,6 +50,7 @@ export const getCoreSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -68,6 +71,7 @@ export const listCoreSubjects = /* GraphQL */ `
         category
         description
         status
+        cbeAchievementRanges
         createdAt
         updatedAt
         __typename
@@ -86,6 +90,7 @@ export const getSupportSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -106,6 +111,7 @@ export const listSupportSubjects = /* GraphQL */ `
         category
         description
         status
+        cbeAchievementRanges
         createdAt
         updatedAt
         __typename
@@ -164,6 +170,7 @@ export const getJuniorSubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -184,6 +191,7 @@ export const listJuniorSubjects = /* GraphQL */ `
         learningAreaCode
         description
         status
+        cbeAchievementRanges
         createdAt
         updatedAt
         __typename
@@ -242,6 +250,7 @@ export const getSNESubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -262,6 +271,7 @@ export const listSNESubjects = /* GraphQL */ `
         learningAreaCode
         description
         status
+        cbeAchievementRanges
         createdAt
         updatedAt
         __typename
@@ -2231,6 +2241,56 @@ export const listTermDefinitions = /* GraphQL */ `
     }
   }
 `;
+export const getAnnualSchoolEnrollmentPlan = /* GraphQL */ `
+  query GetAnnualSchoolEnrollmentPlan($id: ID!) {
+    getAnnualSchoolEnrollmentPlan(id: $id) {
+      id
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      academicYear
+      expectedLearnersByGrade
+      declaredByUserId
+      declaredAt
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const listAnnualSchoolEnrollmentPlans = /* GraphQL */ `
+  query ListAnnualSchoolEnrollmentPlans(
+    $filter: ModelAnnualSchoolEnrollmentPlanFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listAnnualSchoolEnrollmentPlans(
+      filter: $filter
+      limit: $limit
+      nextToken: $nextToken
+    ) {
+      items {
+        id
+        nationCode
+        regionCode
+        countyCode
+        subCountyCode
+        schoolCode
+        academicYear
+        expectedLearnersByGrade
+        declaredByUserId
+        declaredAt
+        createdAt
+        updatedAt
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
 export const getUser = /* GraphQL */ `
   query GetUser($id: ID!) {
     getUser(id: $id) {
@@ -2778,6 +2838,72 @@ export const listLearnerProfiles = /* GraphQL */ `
         supportProfile
         status
         createdByTeacherId
+        createdAt
+        updatedAt
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
+export const getLearnerSubjectPerformance = /* GraphQL */ `
+  query GetLearnerSubjectPerformance($id: ID!) {
+    getLearnerSubjectPerformance(id: $id) {
+      id
+      learnerId
+      subjectId
+      subjectName
+      gradeLevel
+      academicYear
+      termOrCycle
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      targetMark
+      achievedMark
+      tertiaryBenchmark
+      targetCareerId
+      courseRequirementsSnapshot
+      nationGradeKey
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const listLearnerSubjectPerformances = /* GraphQL */ `
+  query ListLearnerSubjectPerformances(
+    $filter: ModelLearnerSubjectPerformanceFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listLearnerSubjectPerformances(
+      filter: $filter
+      limit: $limit
+      nextToken: $nextToken
+    ) {
+      items {
+        id
+        learnerId
+        subjectId
+        subjectName
+        gradeLevel
+        academicYear
+        termOrCycle
+        nationCode
+        regionCode
+        countyCode
+        subCountyCode
+        schoolCode
+        targetMark
+        achievedMark
+        tertiaryBenchmark
+        targetCareerId
+        courseRequirementsSnapshot
+        nationGradeKey
         createdAt
         updatedAt
         __typename
@@ -3698,6 +3824,88 @@ export const listAssessmentEvidenceLinks = /* GraphQL */ `
         caption
         createdAt
         updatedAt
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
+export const learnerSubjectPerformancesByNationGrade = /* GraphQL */ `
+  query LearnerSubjectPerformancesByNationGrade(
+    $nationGradeKey: String!
+    $academicYearSubjectId: ModelLearnerSubjectPerformanceByNationGradeYearSubjectCompositeKeyConditionInput
+    $sortDirection: ModelSortDirection
+    $filter: ModelLearnerSubjectPerformanceFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    learnerSubjectPerformancesByNationGrade(
+      nationGradeKey: $nationGradeKey
+      academicYearSubjectId: $academicYearSubjectId
+      sortDirection: $sortDirection
+      filter: $filter
+      limit: $limit
+      nextToken: $nextToken
+    ) {
+      items {
+        id
+        learnerId
+        subjectId
+        subjectName
+        gradeLevel
+        academicYear
+        termOrCycle
+        nationCode
+        regionCode
+        countyCode
+        subCountyCode
+        schoolCode
+        targetMark
+        achievedMark
+        tertiaryBenchmark
+        targetCareerId
+        courseRequirementsSnapshot
+        nationGradeKey
+        createdAt
+        updatedAt
+        __typename
+      }
+      nextToken
+      __typename
+    }
+  }
+`;
+export const listNationalCbeRollupsByGrade = /* GraphQL */ `
+  query ListNationalCbeRollupsByGrade(
+    $nationGradeKey: String!
+    $academicYearDimensionBinKey: ModelNationalCbeRollupByNationalGradeYearCompositeKeyConditionInput
+    $sortDirection: ModelSortDirection
+    $filter: ModelNationalCbeRollupFilterInput
+    $limit: Int
+    $nextToken: String
+  ) {
+    listNationalCbeRollupsByGrade(
+      nationGradeKey: $nationGradeKey
+      academicYearDimensionBinKey: $academicYearDimensionBinKey
+      sortDirection: $sortDirection
+      filter: $filter
+      limit: $limit
+      nextToken: $nextToken
+    ) {
+      items {
+        id
+        nationGradeKey
+        academicYear
+        dimension
+        binKey
+        subjectId
+        subjectName
+        count
+        deviationSum
+        deviationSquares
+        updatedAt
+        createdAt
         __typename
       }
       nextToken

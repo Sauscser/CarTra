@@ -15,10 +15,11 @@ type ClusterPoint = {
 type Props = {
   learner: any;
   profile: any;
+  supportSubjectIds: ReadonlySet<string>;
 };
 
-export default function LearnerClusterTrendGraph({ learner, profile }: Props) {
-  const series = calculateHistoricalClusterSeries(learner, profile || {}) as ClusterPoint[];
+export default function LearnerClusterTrendGraph({ learner, profile, supportSubjectIds }: Props) {
+  const series = calculateHistoricalClusterSeries(learner, profile || {}, undefined, supportSubjectIds) as ClusterPoint[];
   const plottedGrades = new Set(series.filter((point) => Number.isFinite(point.value)).map((point) => Number(point.label)));
   const missingGrades = GRADES.filter((grade) => !plottedGrades.has(grade));
   const seniorGrades = GRADES.filter((grade) => grade >= 10);
@@ -79,7 +80,7 @@ export default function LearnerClusterTrendGraph({ learner, profile }: Props) {
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>Cluster performance by grade</Text>
-      <Text style={styles.caption}>Grades 7–9 show mean subject score (MSS); Grades 10–12 show course cluster points. The two phases are not connected.</Text>
+      <Text style={styles.caption}>Grades 7–9 show mean subject score (MSS); Grades 10–12 show course cluster points excluding support subjects. The two phases are not connected.</Text>
       {series.length > 0 ? (
         <View style={[styles.chart, { width, height }]}>
           {Array.from({ length: Math.floor(maximum / 10) + 1 }, (_, index) => index * 10).map((tick) => (
@@ -107,7 +108,7 @@ export default function LearnerClusterTrendGraph({ learner, profile }: Props) {
             <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: '#93c5fd' }]} /><Text style={styles.legendText}>Target MSS (Grades 7–9)</Text></View>
             <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: '#1d4ed8' }]} /><Text style={styles.legendText}>Achieved MSS / course cluster points</Text></View>
             <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: '#0f766e' }]} /><Text style={styles.legendText}>Learner target (Grades 10–12)</Text></View>
-            <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: '#b45309' }]} /><Text style={styles.legendText}>Tertiary minimum (ME2 floor)</Text></View>
+            <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: '#b45309' }]} /><Text style={styles.legendText}>Tertiary minimum (course-specific)</Text></View>
           </View>
         </View>
       ) : null}

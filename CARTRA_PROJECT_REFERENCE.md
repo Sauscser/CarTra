@@ -362,7 +362,7 @@ Display:
 
 UI flow:
 1. Learner dashboard shows My Growth summary
-2. Tap a competency to view performance by term
+2. View annual competency growth and academic-year performance history
 3. See evidence files and comments linked to each item
 4. Open portfolio page to review all uploaded work
 
@@ -372,7 +372,7 @@ Display:
 - values and behaviour progress
 - intervention notes and next steps
 - evidence gallery showing work completed by the learner
-- portfolio snapshot for term or academic year
+- portfolio snapshot for the academic year or a selected evidence session
 
 UI flow:
 1. Parent dashboard shows child status cards
@@ -385,14 +385,14 @@ Display:
 - learner list grouped by class and subject
 - competency heatmap and risk indicators
 - observation checklist entries by learner
-- rubric scores by criterion and term
+- rubric scores for annual review
 - portfolio links by learner and subject
 
 UI flow:
 1. Teacher opens class dashboard
 2. Select learner card
-3. View assessment history and evidence timeline
-4. Add a new observation, score, or portfolio item
+3. View academic-year performance history and evidence timeline
+4. Enter final subject targets and achieved marks once at year end
 5. Use quick actions: mark, comment, attach evidence, share
 
 ### For Principals and School Leadership
@@ -405,13 +405,13 @@ Display:
 
 UI flow:
 1. Principal opens school dashboard
-2. Filter by class, learning area, or term
-3. Review cohort trend and risk distribution
+2. Filter by class, learning area, or academic year
+3. Review annual cohort trend and risk distribution
 4. Drill into learner detail for intervention or guidance
 
 ### For Sub-county, County, Regional, and National Officers
 Display:
-- jurisdiction-level trend charts
+- jurisdiction-level annual trend charts
 - aggregate risk and support distribution
 - school comparison tables
 - portfolio and evidence summary for selected learners or schools at review time
@@ -429,7 +429,7 @@ All assessment tools should follow one reporting pattern:
 2. detailed learner scores below
 3. evidence gallery or attachments
 4. teacher comments and support actions
-5. trend over time by term or academic year
+5. performance trends by academic year; subject mark snapshots are captured at year end
 
 This ensures every stakeholder gets the same core information in a different level of detail depending on role and responsibility.
 
@@ -924,7 +924,7 @@ The system should present competency and development indicators in formats suita
 #### For Teachers
 1. Competency heatmaps by class and learner.
 2. Learner support lists showing who needs intervention, mentoring, or additional support.
-3. Subject and competency trend summaries across terms or academic years.
+3. Subject and competency trend summaries across academic years; final subject marks are captured at year end.
 4. Evidence summaries from practical work, projects, and classroom participation.
 5. Action-oriented dashboards for follow-up and learner monitoring.
 
@@ -1003,7 +1003,7 @@ Required for learner and teacher workflows.
 ### 4. Performance Entry UI
 Required for teachers and principals.
 1. Enter subject-level target scores.
-2. Enter achieved marks by subject and term or year.
+2. Enter final achieved marks by subject once at the end of each academic year.
 3. Capture competency-based scores.
 4. Capture values and behaviour indicators.
 5. Attach evidence or notes where applicable.
@@ -1036,7 +1036,7 @@ The system needs separate dashboards for each stakeholder, each tailored to the 
 
 ### Learner Dashboard
 1. KPI summary cards for current target status, deviation, risk level, and readiness.
-2. Target versus achieved line chart across years and terms.
+2. Target versus achieved line chart across academic years.
 3. Subject-by-subject bar chart comparing target and actual performance.
 4. Competency progress cards or radar chart for skill mastery.
 5. Support and intervention timeline with mentor comments and updates.
@@ -1060,7 +1060,7 @@ The system needs separate dashboards for each stakeholder, each tailored to the 
 1. School-wide learner distribution by risk band.
 2. Subject and cohort performance comparison charts.
 3. Escalation summary by teacher, learner, or intervention queue.
-4. Trends across academic terms or years.
+4. Trends across academic years; subject performance is reported from end-of-year captures only.
 5. Summary of unresolved intervention and support workload.
 
 ### Officer Dashboard
@@ -1103,11 +1103,11 @@ The most effective UI structure is:
 This ensures users can quickly understand the status and then move into action without losing context.
 
 ## Deviation Formula
-Base deviation formula:
+National CBE performance reporting uses:
 
-Deviation percent = ((Set Target - Achieved Target) / Set Target) * 100
+Deviation percent = ((Achieved - Set Target) / Set Target) * 100
 
-This formula will likely need safeguards for zero or invalid targets.
+Positive values mean achievement exceeded the target; negative values mean achievement was below target. Do not calculate a percentage when the target is zero, missing, or invalid. Legacy escalation functions may have a different sign convention; keep that implementation separate until its policy thresholds are aligned and tested.
 
 ## Escalation Thresholds
 1. Above 20 percent deviation: sub-county review
@@ -1656,7 +1656,7 @@ CarTra uses a blue-forward visual identity. The theme should stay consistent acr
 
 ## Open Questions To Resolve Later
 1. Exact CBC or CBE competency taxonomy to support in the first release
-2. Whether annual performance alone is enough or whether term-by-term entry is needed
+2. Confirmed: subject performance and National CBE reporting use end-of-year captures only across Grades 7-12.
 3. Whether parent accounts may link to multiple learners
 4. Whether teachers may handle multiple classes across schools
 5. Whether national and regional officers can directly edit lower-level records or only supervise
@@ -1676,3 +1676,79 @@ The next technical documents to create should be:
 
 ## Working Rule For This Project
 CarTra is a separate standalone project and must not be created or developed inside the MiFedha project folder.
+
+## National Annual CBE Statistics Reference (2026-10-06)
+
+This section is the implementation reference for annual CBE statistics presented to the National Officer. It supersedes older term-based wording above for subject marks, CBE points, learner targets, and tertiary-cluster comparisons. There are six reportable grade levels: Grades 7, 8, 9, 10, 11, and 12. Subject and course performance is captured once at the end of each academic year; it is not a termly reporting workflow.
+
+### Reporting Goals
+
+The National Officer dashboard is intended to present:
+- End-of-year subject mark distributions by configured national CBE achievement band (BE1, BE2, AE1, AE2, ME1, ME2, EE1, EE2), grade, subject, and academic year.
+- Subject target deviation distributions, using deviation = ((achieved - target) / target) x 100.
+- For Grades 10-12, annual course-cluster achievement compared with the learner's own target cluster points and the selected tertiary course's minimum benchmark.
+- Clear no-data states when there are no annual records for the selected nation, grade, or year. Missing data is not represented as zero and no synthetic records are fabricated.
+
+Positive deviation means achieved performance exceeded the target; negative deviation means achieved performance fell below the target. Zero, absent, invalid, or incomplete targets do not contribute to deviation statistics. The cluster comparison also requires complete course requirements and sufficient marks to calculate both learner target and achieved cluster scores.
+
+### Data Flow
+
+1. A teacher saves a learner's annual subject targets and final achieved marks in `src/screens/Teacher/TeacherHomeScreen.tsx`. The learner's `supportProfile` keeps the current learner-view history for backward compatibility.
+2. The same save path upserts normalized annual rows in `LearnerSubjectPerformance`. A subject row is keyed deterministically by learner, grade, subject, academic year, and the `EndOfYear` cycle marker. Editing a result for the same learner/subject/year corrects that annual row instead of creating another assessment occurrence.
+3. For a senior learner with sufficient course requirements and marks, the teacher flow also upserts one synthetic row with `subjectId = __ANNUAL_CLUSTER__`. It carries achieved cluster points in `achievedMark`, learner-target cluster points in `targetMark`, the tertiary benchmark in `tertiaryBenchmark`, and the course-requirements snapshot used for calculation. The course identity and benchmark originate from the learner's selected Tertiary course configured in `src/screens/Tertiary/TertiaryHomeScreen.tsx`.
+4. DynamoDB Streams on `LearnerSubjectPerformance` invoke the National rollup processor. It subtracts the prior snapshot's contribution when a result is corrected, adds the new contribution, and stores a last-processed sequence plus source snapshot as a private checkpoint row in `NationalCbeRollup` in the same DynamoDB transaction as the aggregate deltas. Retries are ignored by the checkpoint sequence. Checkpoint rows omit `nationGradeKey` and therefore are not returned by the National reporting GSI; the processor writes the rollup table, not the source fact table, so there is no recursive source stream event.
+5. The processor writes fixed-size `NationalCbeRollup` rows. Mark rows are counted into integer mark bins, which are grouped into national CBE bands at display time. Deviation rows use five-percentage-point bins and keep count, sum, and sum-of-squares, allowing mean and fitted normal-curve presentation without sending learner-level records to the National device.
+6. The National app requests indexed rollup rows by `nationGradeKey = NATION#GRADE`, then selects academic year, subject, and display mode locally. It does not need to read each learner profile or each performance fact for the national chart.
+
+### Models and Keys
+
+`LearnerSubjectPerformance` in `amplify/backend/api/cartra/schema.graphql` is the normalized annual fact model. It stores learner/subject identifiers, grade, academic year, `termOrCycle` (set to `EndOfYear` for this workflow), jurisdiction codes, annual target and achievement, target career, course requirements snapshot, and tertiary benchmark. Its `byNationGradeYearSubject` index partitions by `nationGradeKey` and sorts by academic year and subject. It contains no rollup checkpoint field.
+
+`NationalCbeRollup` is the compact report model. Its `byNationalGradeYear` index partitions by `nationGradeKey` and sorts by academic year, dimension, and bin key. Dimensions used by the processor are:
+- `MARK#<subjectId>`: annual integer mark histogram by subject.
+- `SUBJECT_DEVIATION#<subjectId>`: annual target deviation bins for an individual subject.
+- `PERSONAL_DEVIATION`: combined subject-target deviation distribution.
+- `CLUSTER_PERSONAL_DEVIATION`: annual achieved cluster points versus learner target cluster points.
+- `CLUSTER_TERTIARY_DEVIATION`: annual achieved cluster points versus the tertiary minimum benchmark.
+
+Each reporting rollup row has a deterministic key derived from nation/grade, academic year, dimension, and bin. It records count, deviation sum, deviation sum-of-squares, and (for subject dimensions) subject identity and display name. Private checkpoint rows share the table's `id` primary key but omit all reporting index attributes; they contain the last stream sequence and the prior annual fact snapshot needed to reverse a correction. Reporting rollups contain no learner names or assessment numbers.
+
+### Authorization and Privacy
+
+Teachers create and update learner performance facts. Authorized school/officer roles may read facts for permitted learner-level workflows. Only app owners and National Officers read `NationalCbeRollup` through its GraphQL model; the stream processor writes directly to DynamoDB using a narrowly scoped role. National charts receive rollups rather than unrelated learner identities.
+
+The stream processor role should have read access to the source table stream and get/transaction access to the rollup table only. Checkpoints are private sparse rows in `NationalCbeRollup`, not fields on teacher-editable facts. AppSync exposes indexed rollup reads to app owners/National Officers; checkpoint rows are excluded from those reads by omission of `nationGradeKey`.
+
+### National Presentation Contract
+
+The National analytics screen is `src/screens/National/index.tsx`; the production chart reads and groups indexed aggregate bins in `src/components/shared/NationalCbeAnalytics.tsx`. The older `src/utils/nationalCbeAnalytics.ts` raw-fact calculator is not the National production read path. The production screen calls `listNationalCbeRollupsByGrade`, never `listLearnerProfiles` or `learnerSubjectPerformancesByNationGrade` to build national statistics. The grade selector contains exactly 7 through 12. The year selector filters annual rollup partitions. Subject filtering applies to subject mark and subject-deviation dimensions. Cluster mode plots learner-target and tertiary-target curves together.
+
+An empty query result is a valid state: display `No annual end-of-year performance data is available for this nation yet.` Retry or refresh should re-query rollups. Do not display empty bins as evidence of zero performance; show no data for that grade/year/dimension.
+
+### Amplify Deployment Wiring
+
+The GraphQL models are in `amplify/backend/api/cartra/schema.graphql`; Amplify Transformer v2 generates their DynamoDB tables, indexes, and GraphQL operations. The generated `LearnerSubjectPerformance` nested stack exports `GetAttLearnerSubjectPerformanceTableStreamArn` and `GetAttLearnerSubjectPerformanceTableName`. The generated `NationalCbeRollup` model creates its report table and GSI.
+
+The registered custom resource is `nationalcberollupstream`, scaffolded with AWS CloudFormation and dependent on API `cartra`. Its template is `amplify/backend/custom/nationalcberollupstream/nationalcberollupstream-cloudformation-template.json`. The template currently defines:
+- A Node.js 22 Lambda processor.
+- A Lambda role limited to reading the performance table's DynamoDB stream, reading/transaction-writing the rollup table, and writing CloudWatch logs.
+- An `AWS::Lambda::EventSourceMapping` using the exported `LearnerSubjectPerformance` stream ARN, `LATEST` start position for a new empty deployment, batch failure reporting, and retry/bisect behavior.
+
+The API ID passed to the custom resource is used to import the model-table stream export and construct the model table names. The stream mapping must depend on the processor. The processor must not be exposed as a broad public GraphQL mutation. Stream starting position `LATEST` is appropriate only under the current assumption that annual fact data is new/empty; if older facts must be included, add a controlled, checkpointed backfill rather than changing the stream start position and replaying unbounded history.
+
+### Current Implementation Status
+
+Completed locally:
+- `LearnerSubjectPerformance` and `NationalCbeRollup` schemas/indexes are present and Amplify GraphQL compilation has succeeded during development.
+- Teacher annual target/mark saves write normalized annual facts and the synthetic senior cluster fact when calculations are available.
+- National UI requests indexed `NationalCbeRollup` rows only and uses aggregate mark bins and deviation sufficient statistics, rather than learner/fact rows.
+- The readable processor and regression tests are in `amplify/backend/function/nationalcberollup/src/`. Run `node amplify/backend/function/nationalcberollup/src/rollup.test.js` for insert/retry/correction checks. Run `npm run sync:national-cbe-rollup` after editing the handler; it minifies the tested source into the custom template and fails if it exceeds CloudFormation's 4096-character inline limit.
+- `nationalcberollupstream` is registered in Amplify as an API-dependent CloudFormation custom resource. `amplify status` reports `Custom nationalcberollupstream: Create` and `Api cartra: Update` before deployment.
+
+- The first `amplify push` for this custom resource failed with `Invalid template resource property 'AnnualPerformanceStreamMapping'`. The mapping had accidentally been nested under `Resources.Outputs`; it is now a top-level `AWS::Lambda::EventSourceMapping` beside the role and processor. The root stack rolled back, while the AppSync schema and `NationalCbeRollup` / `LearnerSubjectPerformance` model nested stacks completed their updates. Recheck live CloudFormation state before retrying.
+- Not yet complete or deployed: retry the `nationalcberollupstream` custom stack after confirming its repaired template is accepted. Do not treat stream-driven national statistics as active until `amplify push` succeeds and the mapping reports enabled.
+- The custom processor uses the generated API export `GetAtt:LearnerSubjectPerformanceTable:StreamArn` and generated rollup-table name `NationalCbeRollup-<API ID>-<env>`. The event mapping uses `LATEST`; that is intentional only while there are no pre-existing annual facts that need aggregation.
+- After deployment, run an end-to-end smoke test: one annual subject mark, one target correction, duplicate stream delivery, one senior cluster comparison, an incomplete-to-complete cluster correction, and the empty-data National view. Confirm exactly one contribution per annual fact and no increment for retry/checkpoint-only work.
+- AWS credentials in the current local shell previously returned `InvalidClientTokenId`; revalidate credentials before deployment. The current session has not run `amplify push` for this stream processor/custom stack.
+
+No legacy backfill is needed when the deployment begins with a genuinely empty normalized performance table and prior learner-history rows are intentionally excluded. If old learner JSON history is later included, its academic year cannot be guessed from grade-only history; migration must require an explicit year assignment or retain those rows as `legacy-year-unknown` and exclude them from year-specific charts.

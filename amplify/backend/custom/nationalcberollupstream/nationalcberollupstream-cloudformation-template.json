@@ -1,0 +1,220 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "{\"createdOn\":\"Windows\",\"createdBy\":\"Amplify\",\"createdWith\":\"13.0.1\",\"stackType\":\"custom-customCloudformation\",\"metadata\":{\"whyContinueWithGen1\":\"Prefer not to answer\"}}",
+  "Parameters": {
+    "env": {
+      "Type": "String"
+    },
+    "apicartraGraphQLAPIIdOutput": {
+      "Type": "String"
+    },
+    "apicartraGraphQLAPIEndpointOutput": {
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "NationalCbeRollupLambdaRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "national-cbe-rollup-access",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/national-cbe-rollup-${env}:*"
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:DescribeStream",
+                    "dynamodb:GetRecords",
+                    "dynamodb:GetShardIterator",
+                    "dynamodb:ListStreams"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":dynamodb:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":table/LearnerSubjectPerformance-",
+                        {
+                          "Ref": "apicartraGraphQLAPIIdOutput"
+                        },
+                        "-",
+                        {
+                          "Ref": "env"
+                        },
+                        "/stream/*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:GetItem",
+                    "dynamodb:TransactWriteItems"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":dynamodb:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":table/NationalCbeRollup-",
+                        {
+                          "Ref": "apicartraGraphQLAPIIdOutput"
+                        },
+                        "-",
+                        {
+                          "Ref": "env"
+                        }
+                      ]
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "NationalCbeRollupProcessor": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": {
+          "Fn::Join": [
+            "",
+            [
+              "national-cbe-rollup-",
+              {
+                "Ref": "env"
+              }
+            ]
+          ]
+        },
+        "Runtime": "nodejs22.x",
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "NationalCbeRollupLambdaRole",
+            "Arn"
+          ]
+        },
+        "Timeout": 60,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "ROLLUP_TABLE_NAME": {
+              "Fn::Join": [
+                "",
+                [
+                  "NationalCbeRollup-",
+                  {
+                    "Ref": "apicartraGraphQLAPIIdOutput"
+                  },
+                  "-",
+                  {
+                    "Ref": "env"
+                  }
+                ]
+              ]
+            }
+          }
+        },
+        "Code": {
+          "ZipFile": "'use strict';const{DynamoDBClient:e,GetItemCommand:t,TransactWriteItemsCommand:n}=require('@aws-sdk/client-dynamodb'),i=new e({}),a=process.env.ROLLUP_TABLE_NAME;function o(e){return null==e?{NULL:1}:'number'==typeof e?{N:e+''}:{S:e+''}}function r(e){return e?Object.fromEntries(Object.entries(e).map(([e,t])=>[e,t.S??(void 0!==t.N?Number(t.N):t.NULL?null:void 0)])):null}function s(e){return e<=-100?'-100':e>=500?'500+':5*Math.floor(e/5)+''}function u(e){const t=new Map,n=Number(e?.gradeLevel),i=e?.achievedMark,a=Number(i),o=Number(e?.targetMark);if(!e?.learnerId||!e?.nationCode||!e?.academicYear||'endofyear'!==((e?.termOrCycle||'')+'').replace(/[^a-z]/gi,'').toLowerCase()||!Number.isInteger(n)||n<7||n>12||null==i||''===i||!Number.isFinite(a)||a<0)return t;const r=`${(e.nationCode+'').trim().toUpperCase()}#${n}`,u=(n,i,a,o,s)=>{const u=[r,e.academicYear,n,i].map(encodeURIComponent).join('#'),c=t.get(u)||{id:u,nationGradeKey:r,academicYear:e.academicYear+'',dimension:n,binKey:i+'',subjectId:o||null,subjectName:s||null,count:0,deviationSum:0,deviationSquares:0};c.count+=1,Number.isFinite(a)&&(c.deviationSum+=a,c.deviationSquares+=a*a),t.set(u,c)};if(e.subjectId+''=='__ANNUAL_CLUSTER__'){if(Number.isFinite(o)&&o>0){const e=(a-o)/o*100;u('CLUSTER_PERSONAL_DEVIATION_EXCLUDING_SUPPORT',s(e),e)}const n=Number(e.tertiaryBenchmark);if(Number.isFinite(n)&&n>0){const e=(a-n)/n*100;u('CLUSTER_TERTIARY_DEVIATION_EXCLUDING_SUPPORT',s(e),e)}return t}const c=(e.subjectId||'')+'';if(!c)return t;if(u('MARK#'+c,Math.floor(Math.max(0,Math.min(100,a))),null,c,e.subjectName),Number.isFinite(o)&&o>0){const t=(a-o)/o*100,n=s(t);u('SUBJECT_DEVIATION#'+c,n,t,c,e.subjectName),u('PERSONAL_DEVIATION',n,t)}return t}function c(e,t,n){for(const[i,a]of t){const t=e.get(i)||{...a,count:0,deviationSum:0,deviationSquares:0};t.count+=n*a.count,t.deviationSum+=n*a.deviationSum,t.deviationSquares+=n*a.deviationSquares,e.set(i,t)}}function d(e){return{Update:{TableName:a,Key:{id:o(e.id)},UpdateExpression:'SET nationGradeKey=:partition, academicYear=:year, #sort=:sort, #dimension=:dimension, binKey=:bin, subjectId=:subjectId, subjectName=:subjectName, createdAt=if_not_exists(createdAt,:createdAt), deviationSum=if_not_exists(deviationSum,:zero)+:sum, deviationSquares=if_not_exists(deviationSquares,:zero)+:squares, updatedAt=:updatedAt ADD #count :count',ExpressionAttributeNames:{'#sort':'academicYear#dimension#binKey','#dimension':'dimension','#count':'count'},ExpressionAttributeValues:{':partition':o(e.nationGradeKey),':year':o(e.academicYear),':sort':o(`${e.academicYear}#${e.dimension}#${e.binKey}`),':dimension':o(e.dimension),':bin':o(e.binKey),':subjectId':o(e.subjectId),':subjectName':o(e.subjectName),':createdAt':o((new Date).toISOString()),':zero':{N:'0'},':sum':{N:e.deviationSum+''},':squares':{N:e.deviationSquares+''},':updatedAt':o((new Date).toISOString()),':count':{N:e.count+''}}}}}async function m(e,s=i){if('REMOVE'===e.eventName)return;const m=r(e.dynamodb?.NewImage),b=((e.dynamodb?.SequenceNumber||'')+'').padStart(40,'0');if(!m||!b)return;const N='CHECKPOINT#'+encodeURIComponent(m.id+''),S=r((await s.send(new t({TableName:a,Key:{id:o(N)},ConsistentRead:1}))).Item);if(S?.lastSequence>=b)return;const l=new Map;S?.snapshot&&c(l,u(JSON.parse(S.snapshot)),-1),c(l,u(m),1);const f=Array.from(l.values()).filter(e=>e.count||e.deviationSum||e.deviationSquares).map(d);f.push({Put:{TableName:a,Item:{id:o(N),lastSequence:o(b),snapshot:o(JSON.stringify(m))},ConditionExpression:'attribute_not_exists(id) OR lastSequence < :sequence',ExpressionAttributeValues:{':sequence':o(b)}}});try{await s.send(new n({TransactItems:f}))}catch(e){if('TransactionCanceledException'===e.name){const e=await s.send(new t({TableName:a,Key:{id:o(N)},ConsistentRead:1}));if(r(e.Item)?.lastSequence>=b)return}throw e}}exports.handler=async e=>{const t=[];for(const n of e.Records||[])try{await m(n)}catch(e){t.push({itemIdentifier:n.dynamodb?.SequenceNumber})}return{batchItemFailures:t}};"
+        }
+      }
+    },
+    "AnnualPerformanceStreamMapping": {
+      "Type": "AWS::Lambda::EventSourceMapping",
+      "DependsOn": [
+        "NationalCbeRollupProcessor"
+      ],
+      "Properties": {
+        "BatchSize": 25,
+        "BisectBatchOnFunctionError": true,
+        "Enabled": true,
+        "EventSourceArn": {
+          "Fn::ImportValue": {
+            "Fn::Join": [
+              "",
+              [
+                {
+                  "Ref": "apicartraGraphQLAPIIdOutput"
+                },
+                ":GetAtt:LearnerSubjectPerformanceTable:StreamArn"
+              ]
+            ]
+          }
+        },
+        "FunctionName": {
+          "Ref": "NationalCbeRollupProcessor"
+        },
+        "FunctionResponseTypes": [
+          "ReportBatchItemFailures"
+        ],
+        "MaximumRetryAttempts": 5,
+        "StartingPosition": "LATEST"
+      }
+    }
+  },
+  "Outputs": {
+    "NationalCbeRollupProcessorArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "NationalCbeRollupProcessor",
+          "Arn"
+        ]
+      }
+    }
+  }
+}

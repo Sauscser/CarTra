@@ -11,6 +11,9 @@ import LearnerPerformanceGraphs from '../../components/shared/LearnerPerformance
 import SubjectPerformanceGraph from '../../components/shared/SubjectPerformanceGraph';
 import SubjectEvidenceActions from '../../components/shared/SubjectEvidenceActions';
 import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
+import CbeJurisdictionAnalytics from '../../components/shared/CbeJurisdictionAnalytics';
+import LearnerFollowUpDashboard from '../../components/shared/LearnerFollowUpDashboard';
+import JurisdictionTransferManager from '../../components/shared/JurisdictionTransferManager';
 import calculateHistoricalClusterSeries, { calculateDeviationPercentage } from '../../utils/cluster';
 import { resolveLearnerCareerTarget } from '../../utils/learnerCareer';
 import { RegionalCountySetupContent } from './RegionalCountySetupScreen';
@@ -533,6 +536,19 @@ function RegionalHomeContent() {
           ) : null}
         </SectionCard>
 
+        {region ? <CbeJurisdictionAnalytics
+          scopeType="region"
+          scopeCode={region.code}
+          scopeName={region.name}
+          nationCode={region.nationCode}
+        /> : null}
+        {region?.nationCode ? <LearnerFollowUpDashboard
+          scopeType="region"
+          scopeCode={region.code}
+          scopeName={region.name}
+          nationCode={region.nationCode}
+        /> : null}
+
         <SectionCard title="Counties in this region" subtitle="All counties linked to your assigned region.">
           {!isLoading && counties.length === 0 ? (
             <Text style={styles.empty}>No counties are assigned to this region yet.</Text>
@@ -640,6 +656,7 @@ function RegionalHomeContent() {
         </SectionCard>
 
         <RegionalCountySetupContent />
+        {region ? <JurisdictionTransferManager scope="region" scopeCodes={{ nationCode: region.nationCode || '', regionCode: region.code }} /> : null}
       </ScrollView>
 
       {modalContent}

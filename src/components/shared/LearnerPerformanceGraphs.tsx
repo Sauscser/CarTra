@@ -3,6 +3,8 @@ import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import CourseSubjectPointsGraph from './CourseSubjectPointsGraph';
 import LearnerClusterTrendGraph from './LearnerClusterTrendGraph';
 import calculateHistoricalClusterSeries, { calculateDeviationPercentage, hasCourseSubjectPointRequirements } from '../../utils/cluster';
+import useSupportSubjectFilter from '../../hooks/useSupportSubjectFilter';
+import { isSupportSubject } from '../../utils/supportSubjects';
 
 type PerformancePoint = { label: string; value: number; target: number };
 type SubjectSeries = { label: string; values: PerformancePoint[]; missingGrades: number[] };
@@ -29,7 +31,7 @@ function getSubjects(profile: any) {
   return [...historical, ...selected];
 }
 
-function getSubjectSeries(learner: any, profile: any): SubjectSeries[] {
+function getSubjectSeries(learner: any, profile: any, supportSubjectIds: ReadonlySet<string>): SubjectSeries[] {
   const currentGrade = Number(String(learner?.gradeLevel || '').replace(/\D/g, '')) || 7;
   const subjects = getSubjects(profile);
   const subjectMap = new Map<string, any>();
@@ -40,12 +42,18 @@ function getSubjectSeries(learner: any, profile: any): SubjectSeries[] {
     if (!existing) {
       subjectMap.set(key, {
         label: subject?.name || subject?.code || 'Subject',
+        id: subject?.id,
+        code: subject?.code,
+        category: subject?.category,
+        subjectCategory: subject?.subjectCategory,
         target: Number(subject?.targetMarks ?? subject?.targetMark ?? NaN),
         achieved: Number(subject?.marksScored ?? NaN),
         history: Array.isArray(subject?.history) ? subject.history : [],
       });
       return;
     }
+    existing.category = subject?.category || existing.category;
+    existing.subjectCategory = subject?.subjectCategory || existing.subjectCategory;
     existing.history = [...existing.history, ...(Array.isArray(subject?.history) ? subject.history : [])];
     if (!Number.isFinite(existing.target) && Number.isFinite(Number(subject?.targetMarks ?? subject?.targetMark))) existing.target = Number(subject.targetMarks ?? subject.targetMark);
     if (Number.isFinite(Number(subject?.marksScored))) existing.achieved = Number(subject.marksScored);
@@ -53,6 +61,7 @@ function getSubjectSeries(learner: any, profile: any): SubjectSeries[] {
 
   return Array.from(subjectMap.values()).map((subject) => {
     const allGradeValues = gradeAxis.map((grade) => {
+      if (grade >= 10 && isSupportSubject(subject, supportSubjectIds)) return null;
       const entry = subject.history.find((item: any) => String(item?.label) === String(grade));
       const target = Number.isFinite(Number(entry?.target)) ? Number(entry.target) : grade === currentGrade ? subject.target : NaN;
       const value = Number.isFinite(Number(entry?.value)) ? Number(entry.value) : grade === currentGrade ? subject.achieved : NaN;
@@ -122,18 +131,21 @@ function LineChart({ series, requirement, maxY }: { series: PerformancePoint[]; 
 }
 
 export default function LearnerPerformanceGraphs({ learner, profile, mode }: Props) {
+  const supportFilter = useSupportSubjectFilter();
+  if (supportFilter.loading) return <Text style={styles.empty}>Checking the support-subject catalog before showing performance...</Text>;
+  if (supportFilter.error) return <Text style={styles.missing}>Performance is hidden because support subjects could not be verified: {supportFilter.error}</Text>;
   if (mode === 'cluster') {
     if (hasCourseSubjectPointRequirements(profile)) {
       return <CourseSubjectPointsGraph learner={learner} profile={profile} />;
     }
-    const series = calculateHistoricalClusterSeries(learner, profile || {});
+    const series = calculateHistoricalClusterSeries(learner, profile || {}, undefined, supportFilter.ids);
     const valid = series.filter((point: any) => Number.isFinite(Number(point.value)));
     const averageCluster = valid.length ? Math.round(valid.reduce((sum: number, point: any) => sum + Number(point.value || 0), 0) / valid.length) : null;
     const averageDeviation = valid.length ? Math.round((valid.reduce((sum: number, point: any) => sum + Number(point.deviation || 0), 0) / valid.length) * 100) / 100 : null;
     const targetCareer = profile?.targetCareer || 'Not set';
     return (
       <View>
-        <LearnerClusterTrendGraph learner={learner} profile={profile} />
+        <LearnerClusterTrendGraph learner={learner} profile={profile} supportSubjectIds={supportFilter.ids} />
         <Text style={styles.summary}>Target career: {targetCareer}</Text>
         <Text style={styles.sectionTitle}>Overall cluster points by year</Text>
         <Text style={styles.summary}>{valid.length ? valid.map((point: any) => `Grade ${point.label}: ${point.value}`).join(' • ') : 'No valid cluster data recorded yet.'}</Text>
@@ -143,7 +155,7 @@ export default function LearnerPerformanceGraphs({ learner, profile, mode }: Pro
     );
   }
 
-  const subjects = getSubjectSeries(learner, profile);
+  const subjects = getSubjectSeries(learner, profile, supportFilter.ids);
   if (!subjects.length) return <Text style={styles.empty}>No subject data is available yet.</Text>;
   return <View><Text style={styles.heading}>Subject performance</Text>{subjects.map((subject, index) => { const deviations = subject.values.map((point) => ({ label: point.label, value: Math.round((calculateDeviationPercentage(point.value, point.target) || 0) * 100) / 100 })); const average = Math.round((deviations.reduce((sum, item) => sum + item.value, 0) / deviations.length) * 100) / 100; return <View key={`${subject.label}-${index}`} style={styles.subject}><Text style={styles.subjectTitle}>{subject.label}</Text><LineChart series={subject.values} /><Text style={styles.missing}>Missing subject data for Grades {subject.missingGrades.join(', ') || 'none'}{subject.missingGrades.length ? '; missing grades are not plotted.' : '.'}</Text><Text style={styles.sectionTitle}>Annual deviation</Text><Text style={styles.summary}>{deviations.map((item) => `Grade ${item.label}: ${item.value}%`).join(' • ')}</Text><Text style={styles.summary}>Average deviation: {average}%</Text></View>; })}</View>;
 }

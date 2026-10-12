@@ -5,6 +5,7 @@ type Subject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nationa
   category: String
   description: String
   status: String!
+  cbeAchievementRanges: AWSJSON
   createdAt: AWSDateTime
   updatedAt: AWSDateTime
 }
@@ -16,6 +17,7 @@ type CoreSubject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nat
   category: String
   description: String
   status: String!
+  cbeAchievementRanges: AWSJSON
   createdAt: AWSDateTime
   updatedAt: AWSDateTime
 }
@@ -27,6 +29,7 @@ type SupportSubject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "
   category: String
   description: String
   status: String!
+  cbeAchievementRanges: AWSJSON
   createdAt: AWSDateTime
   updatedAt: AWSDateTime
 }
@@ -48,6 +51,7 @@ type JuniorSubject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "n
   learningAreaCode: String
   description: String
   status: String!
+  cbeAchievementRanges: AWSJSON
   createdAt: AWSDateTime
   updatedAt: AWSDateTime
 }
@@ -69,6 +73,7 @@ type SNESubject @model @auth(rules: [{ allow: groups, groups: ["appOwner", "nati
   learningAreaCode: String
   description: String
   status: String!
+  cbeAchievementRanges: AWSJSON
   createdAt: AWSDateTime
   updatedAt: AWSDateTime
 }
@@ -701,6 +706,21 @@ type TermDefinition @model @auth(rules: [{ allow: groups, groups: ["nationalOffi
   updatedAt: AWSDateTime
 }
 
+type AnnualSchoolEnrollmentPlan @model @auth(rules: [{ allow: groups, groups: ["principal"], operations: [create, read, update] }, { allow: groups, groups: ["subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer", "appOwner"], operations: [read] }, { allow: private, operations: [read] }]) {
+  id: ID!
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  subCountyCode: String!
+  schoolCode: String!
+  academicYear: String!
+  expectedLearnersByGrade: AWSJSON!
+  declaredByUserId: ID!
+  declaredAt: AWSDateTime!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
 type User @model @auth(rules: [{ allow: groups, groups: ["appOwner"], operations: [create, read, update, delete] }, { allow: groups, groups: ["nationalOfficer"], operations: [create, read, update, delete] }, { allow: groups, groups: ["regionalOfficer"], operations: [create, read, update] }, { allow: groups, groups: ["countyOfficer"], operations: [create, read, update] }, { allow: groups, groups: ["subCountyOfficer"], operations: [create, read, update] }, { allow: groups, groups: ["principal"], operations: [create, read, update] }, { allow: groups, groups: ["teacher"], operations: [create, read, update] }, { allow: groups, groups: ["tertiaryOfficer"], operations: [create, read, update] }, { allow: owner, ownerField: "email", operations: [read, update] }]) {
   id: ID!
   email: String!
@@ -866,6 +886,43 @@ type LearnerProfile @model @auth(rules: [{ allow: groups, groups: ["teacher", "p
   status: String!
   createdByTeacherId: ID
   createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LearnerSubjectPerformance @model(subscriptions: { level: off }) @auth(rules: [{ allow: groups, groups: ["teacher"], operations: [create, read, update] }, { allow: groups, groups: ["principal", "subCountyOfficer", "countyOfficer", "regionalOfficer", "nationalOfficer", "appOwner"], operations: [read] }]) {
+  id: ID!
+  learnerId: ID!
+  subjectId: ID!
+  subjectName: String!
+  gradeLevel: Int!
+  academicYear: String!
+  termOrCycle: String!
+  nationCode: String!
+  regionCode: String!
+  countyCode: String!
+  subCountyCode: String!
+  schoolCode: String!
+  targetMark: Float
+  achievedMark: Float
+  tertiaryBenchmark: Float
+  targetCareerId: ID
+  courseRequirementsSnapshot: AWSJSON
+  nationGradeKey: String! @index(name: "byNationGradeYearSubject", sortKeyFields: ["academicYear", "subjectId"], queryField: "learnerSubjectPerformancesByNationGrade")
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type NationalCbeRollup @model(queries: { get: null, list: null }, subscriptions: { level: off }) @auth(rules: [{ allow: groups, groups: ["appOwner", "nationalOfficer"], operations: [read] }]) {
+  id: ID!
+  nationGradeKey: String! @index(name: "byNationalGradeYear", sortKeyFields: ["academicYear", "dimension", "binKey"], queryField: "listNationalCbeRollupsByGrade")
+  academicYear: String!
+  dimension: String!
+  binKey: String!
+  subjectId: ID
+  subjectName: String
+  count: Int!
+  deviationSum: Float
+  deviationSquares: Float
   updatedAt: AWSDateTime
 }
 

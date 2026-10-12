@@ -3,6 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import PerformanceCartesianChart from './PerformanceCartesianChart';
 import { calculateDeviationPercentage } from '../../utils/cluster';
 import { parseLearnerSupportProfile } from '../../utils/learnerCareer';
+import useSupportSubjectFilter from '../../hooks/useSupportSubjectFilter';
+import { isSupportSubject } from '../../utils/supportSubjects';
 
 type MarkPoint = { label: string; value: number | null; target: number | null };
 type SubjectSeries = {
@@ -28,7 +30,7 @@ function recordedMark(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function getSubjectSeries(learner: any, profile: any): SubjectSeries[] {
+function getSubjectSeries(learner: any, profile: any, supportSubjectIds: ReadonlySet<string>): SubjectSeries[] {
   const supportProfile = parseLearnerSupportProfile(profile?.supportProfile) || {};
   const historicalSubjects = Array.isArray(profile?.historicalSelectedSubjects)
     ? profile.historicalSelectedSubjects
@@ -46,6 +48,8 @@ function getSubjectSeries(learner: any, profile: any): SubjectSeries[] {
     subjects.set(identity, {
       ...(existing || {}),
       ...subject,
+      category: subject?.category || existing?.category,
+      subjectCategory: subject?.subjectCategory || existing?.subjectCategory,
       id: subject?.id || existing?.id,
       name: subject?.name || existing?.name || subject?.code || 'Subject',
       code: subject?.code || existing?.code,
@@ -63,35 +67,45 @@ function getSubjectSeries(learner: any, profile: any): SubjectSeries[] {
       currentGrade >= 10 ? 'senior' : 'junior',
     ]);
 
-    return Array.from(phases).map((phase) => {
+    return Array.from(phases).flatMap((phase): SubjectSeries[] => {
+      if (phase === 'senior' && isSupportSubject(subject, supportSubjectIds)) return [];
       const grades = phase === 'senior' ? SENIOR_GRADES : JUNIOR_GRADES;
       const values = grades.flatMap((grade) => {
         const entries = history.filter((entry: any) => Number(String(entry?.label || '').trim()) === grade);
         const entry = entries.at(-1);
         const historicalValue = recordedMark(entry?.value);
+        const recordedHistoricalValue = historicalValue !== null && (historicalValue > 0 || entry?.achievedRecorded === true)
+          ? historicalValue
+          : null;
         const historicalTarget = recordedMark(entry?.target);
-        const currentValue = grade === currentGrade ? recordedMark(subject.marksScored) : null;
+        const storedCurrentValue = grade === currentGrade ? recordedMark(subject.marksScored) : null;
+        const currentValue = storedCurrentValue !== null && storedCurrentValue > 0 ? storedCurrentValue : null;
         const currentTarget = grade === currentGrade ? recordedMark(subject.targetMarks ?? subject.targetMark) : null;
-        const value = historicalValue ?? (currentValue !== null && currentValue >= 0 ? currentValue : null);
+        const value = recordedHistoricalValue ?? currentValue;
         const candidateTarget = historicalTarget ?? currentTarget;
         const target = candidateTarget !== null && candidateTarget > 0 ? candidateTarget : null;
         return value === null && target === null ? [] : [{ label: String(grade), value, target }];
       });
 
-      return {
+      if (!values.some((point) => point.value !== null && point.value >= 0)) return [];
+
+      return [{
         id: subject.id ? String(subject.id) : undefined,
         label: String(subject.name || subject.code || 'Subject'),
         code: subject.code ? String(subject.code) : undefined,
         phase,
         values,
-      };
+      }];
     });
   });
 }
 
 export default function SubjectPerformanceGraph({ learner, profile, renderSubjectActions }: Props) {
-  const subjects = getSubjectSeries(learner, profile || {});
-  if (!subjects.length) return <Text style={styles.empty}>No subject assignments or performance records are available.</Text>;
+  const supportFilter = useSupportSubjectFilter();
+  if (supportFilter.loading) return <Text style={styles.empty}>Checking the support-subject catalog before showing performance...</Text>;
+  if (supportFilter.error) return <Text style={styles.missing}>Subject performance is hidden because support subjects could not be verified: {supportFilter.error}</Text>;
+  const subjects = getSubjectSeries(learner, profile || {}, supportFilter.ids);
+  if (!subjects.length) return <Text style={styles.empty}>No attempted subject marks are available to graph. Subjects with targets but no achieved marks are not shown.</Text>;
 
   return (
     <View>

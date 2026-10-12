@@ -1,0 +1,12 @@
+{
+  "name": "nationalcberollup",
+  "version": "1.0.0",
+  "description": "Idempotent annual National CBE rollup stream processor",
+  "main": "index.js",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.850.0",
+    "@aws-sdk/lib-dynamodb": "^3.850.0",
+    "cartra": "file:../../../../.."
+  }
+}

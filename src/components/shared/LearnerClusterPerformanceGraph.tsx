@@ -4,6 +4,7 @@ import calculateHistoricalClusterSeries, { getMissingClusterGrades } from '../..
 import { parseLearnerSupportProfile } from '../../utils/learnerCareer';
 import CourseSubjectPointsGraph from './CourseSubjectPointsGraph';
 import PerformanceCartesianChart from './PerformanceCartesianChart';
+import useSupportSubjectFilter from '../../hooks/useSupportSubjectFilter';
 
 type Props = {
   learner: any;
@@ -12,6 +13,9 @@ type Props = {
 };
 
 export default function LearnerClusterPerformanceGraph({ learner, profile, targetCareer }: Props) {
+  const supportFilter = useSupportSubjectFilter();
+  if (supportFilter.loading) return <Text style={styles.missing}>Checking the support-subject catalog before showing performance...</Text>;
+  if (supportFilter.error) return <Text style={styles.missing}>Cluster performance is hidden because support subjects could not be verified: {supportFilter.error}</Text>;
   const supportProfile = parseLearnerSupportProfile(profile?.supportProfile) || {};
   const selectedSubjects = Array.isArray(profile?.selectedSubjects)
     ? profile.selectedSubjects
@@ -26,7 +30,7 @@ export default function LearnerClusterPerformanceGraph({ learner, profile, targe
     selectedSubjects,
     historicalSelectedSubjects,
   };
-  const series = calculateHistoricalClusterSeries(learner, normalizedProfile, selectedSubjects);
+  const series = calculateHistoricalClusterSeries(learner, normalizedProfile, selectedSubjects, supportFilter.ids);
   const valid = series.filter((point: any) => Number.isFinite(Number(point.value)));
   const missingGrades = getMissingClusterGrades(series);
   const missingLearnerTargets = [10, 11, 12].filter((grade) => !Number.isFinite(Number(series.find((point: any) => Number(point.label) === grade)?.learnerTarget)));

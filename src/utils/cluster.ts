@@ -1,10 +1,42 @@
+import { isSupportSubject } from './supportSubjects';
+
 export const GRADE_AXIS = [7, 8, 9, 10, 11, 12] as const;
 
 const CBE_SUBJECT_POINTS_MAX = 8;
 const CBE_TOP_SUBJECT_COUNT = 7;
-const CBE_ATTEMPTED_POINTS_MAX = CBE_SUBJECT_POINTS_MAX * CBE_TOP_SUBJECT_COUNT;
+export const CBE_ATTEMPTED_POINTS_MAX = CBE_SUBJECT_POINTS_MAX * CBE_TOP_SUBJECT_COUNT;
 
-type CourseClusterSubjectRequirement = { subjectId: string; operator: 'AND' | 'OR'; minimumPoints?: number; subjectName?: string };
+export type CbeAchievementRange = { level: string; minimumMark: number; maximumMark: number };
+
+export const DEFAULT_CBE_ACHIEVEMENT_RANGES: CbeAchievementRange[] = [
+  { level: 'BE1', minimumMark: 0, maximumMark: 9 },
+  { level: 'BE2', minimumMark: 10, maximumMark: 19 },
+  { level: 'AE1', minimumMark: 20, maximumMark: 29 },
+  { level: 'AE2', minimumMark: 30, maximumMark: 39 },
+  { level: 'ME1', minimumMark: 40, maximumMark: 57 },
+  { level: 'ME2', minimumMark: 58, maximumMark: 74 },
+  { level: 'EE1', minimumMark: 75, maximumMark: 89 },
+  { level: 'EE2', minimumMark: 90, maximumMark: 100 },
+];
+
+const CBE_LEVEL_POINTS: Record<string, number> = {
+  BE1: 1,
+  BE2: 2,
+  AE1: 3,
+  AE2: 4,
+  ME1: 5,
+  ME2: 6,
+  EE1: 7,
+  EE2: 8,
+};
+
+type CourseClusterSubjectRequirement = {
+  subjectId: string;
+  operator: 'AND' | 'OR';
+  minimumPoints?: number;
+  subjectName?: string;
+  achievementRanges?: CbeAchievementRange[];
+};
 
 export type CourseClusterRequirements = {
   version: 1 | 2 | 3;
@@ -12,20 +44,64 @@ export type CourseClusterRequirements = {
   requiredSubjectIds: string[];
   alternativeSubjectIds: string[];
   subjectSequence?: CourseClusterSubjectRequirement[];
+  bestSubjectsMinimumPoints?: number;
+  achievementRanges?: CbeAchievementRange[];
 };
 
 export function getCbeAchievementLevel(points: number) {
-  const labels: Record<number, string> = {
-    1: 'BE2',
-    2: 'BE1',
-    3: 'AE2',
-    4: 'AE1',
-    5: 'ME2',
-    6: 'ME1',
-    7: 'EE2',
-    8: 'EE1',
-  };
+  const labels = Object.fromEntries(Object.entries(CBE_LEVEL_POINTS).map(([level, value]) => [value, level]));
   return labels[points] || 'Not assessed';
+}
+
+export function parseCbeAchievementRanges(value: unknown): CbeAchievementRange[] {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return DEFAULT_CBE_ACHIEVEMENT_RANGES;
+    }
+  }
+  const validRanges = hasValidCbeAchievementRanges(parsed) ? parsed as CbeAchievementRange[] : null;
+  return validRanges ? validRanges.map((item) => ({
+    level: String(item.level),
+    minimumMark: Number(item.minimumMark),
+    maximumMark: Number(item.maximumMark),
+  })) : DEFAULT_CBE_ACHIEVEMENT_RANGES;
+}
+
+export function getSubjectCbeRanges(subjectLike: any): CbeAchievementRange[] {
+  if (!subjectLike) return DEFAULT_CBE_ACHIEVEMENT_RANGES;
+  const rawRanges = subjectLike.cbeAchievementRanges ?? subjectLike.achievementRanges ?? subjectLike.metadata?.cbeAchievementRanges;
+  return parseCbeAchievementRanges(rawRanges);
+}
+
+export function hasValidCbeAchievementRanges(value: unknown) {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return false;
+    }
+  }
+  if (!Array.isArray(parsed) || parsed.length !== DEFAULT_CBE_ACHIEVEMENT_RANGES.length) return false;
+  const ranges: CbeAchievementRange[] = parsed.map((item: any) => ({
+    level: String(item?.level || ''),
+    minimumMark: Number(item?.minimumMark),
+    maximumMark: Number(item?.maximumMark),
+  }));
+  const isValid = ranges.every((range, index) =>
+    range.level === DEFAULT_CBE_ACHIEVEMENT_RANGES[index].level
+      && Number.isInteger(range.minimumMark)
+      && Number.isInteger(range.maximumMark)
+      && range.minimumMark >= 0
+      && range.maximumMark <= 100
+      && range.minimumMark <= range.maximumMark
+      && (index === 0 ? range.minimumMark === 0 : range.minimumMark === ranges[index - 1].maximumMark + 1),
+  ) && ranges[ranges.length - 1].maximumMark === 100;
+
+  return isValid;
 }
 
 export function normalizeCourseSubjectMinimum(value: unknown) {
@@ -45,7 +121,16 @@ export function parseCourseClusterRequirements(value: unknown): CourseClusterReq
   }
 
   if (!parsed || typeof parsed !== 'object') return null;
-  const candidate = parsed as { version?: unknown; pointScale?: unknown; requiredSubjectIds?: unknown; alternativeSubjectIds?: unknown; subjectSequence?: unknown };
+  const candidate = parsed as { version?: unknown; pointScale?: unknown; requiredSubjectIds?: unknown; alternativeSubjectIds?: unknown; subjectSequence?: unknown; bestSubjectsMinimumPoints?: unknown; achievementRanges?: unknown };
+  const bestSubjectsMinimumPoints = candidate.bestSubjectsMinimumPoints !== undefined
+    && Number.isInteger(Number(candidate.bestSubjectsMinimumPoints))
+    && Number(candidate.bestSubjectsMinimumPoints) >= 0
+    && Number(candidate.bestSubjectsMinimumPoints) <= CBE_ATTEMPTED_POINTS_MAX
+    ? Number(candidate.bestSubjectsMinimumPoints)
+    : undefined;
+  const achievementRanges = Array.isArray(candidate.achievementRanges)
+    ? candidate.achievementRanges as CbeAchievementRange[]
+    : undefined;
   if (Array.isArray(candidate.subjectSequence)) {
     const isCbeEightPointScale = candidate.pointScale === 'CBE_8' && Number(candidate.version) >= 3;
     const subjectSequence = candidate.subjectSequence
@@ -53,6 +138,7 @@ export function parseCourseClusterRequirements(value: unknown): CourseClusterReq
         subjectId: String(item?.subjectId || ''),
         operator: item?.operator === 'OR' ? 'OR' : 'AND',
         subjectName: typeof item?.subjectName === 'string' ? item.subjectName : undefined,
+        achievementRanges: Array.isArray(item?.achievementRanges) ? parseCbeAchievementRanges(item.achievementRanges) : undefined,
         minimumPoints: isCbeEightPointScale ? normalizeCourseSubjectMinimum(item?.minimumPoints) : undefined,
       }))
       .filter((item) => item.subjectId);
@@ -61,6 +147,8 @@ export function parseCourseClusterRequirements(value: unknown): CourseClusterReq
         version: 3,
         pointScale: 'CBE_8',
         subjectSequence,
+        bestSubjectsMinimumPoints,
+        achievementRanges,
         requiredSubjectIds: subjectSequence.filter((item) => item.operator === 'AND').map((item) => item.subjectId),
         alternativeSubjectIds: subjectSequence.filter((item) => item.operator === 'OR').map((item) => item.subjectId),
       };
@@ -105,6 +193,20 @@ export function hasCompleteCourseSubjectRequirements(requirementsValue?: unknown
   );
 }
 
+export function hasCompleteCourseScoringData(requirementsValue?: unknown) {
+  const requirements = parseCourseClusterRequirements(requirementsValue);
+  return Boolean(
+    hasCompleteCourseSubjectRequirements(requirements)
+      && Number.isInteger(requirements?.bestSubjectsMinimumPoints)
+      && Number(requirements?.bestSubjectsMinimumPoints) >= 0
+      && Number(requirements?.bestSubjectsMinimumPoints) <= CBE_ATTEMPTED_POINTS_MAX
+      && (
+        hasValidCbeAchievementRanges(requirements?.achievementRanges)
+        || requirements?.subjectSequence?.every((item) => hasValidCbeAchievementRanges(item.achievementRanges))
+      ),
+  );
+}
+
 export function hasCourseSubjectPointRequirements(profile: any) {
   const parsedSupportProfile = parseSupportProfileValue(profile);
   const requirements = parseCourseClusterRequirements(
@@ -113,22 +215,18 @@ export function hasCourseSubjectPointRequirements(profile: any) {
   return getCourseRequirementGroups(requirements).length > 0;
 }
 
-export function getCourseSubjectPoints(marks: unknown) {
+export function getCourseSubjectPoints(marks: unknown, rangesValue?: unknown) {
   const numericMarks = Number(marks);
-  if (!Number.isFinite(numericMarks) || numericMarks <= 0) return 0;
+  if (!hasValidCbeAchievementRanges(rangesValue) || !Number.isFinite(numericMarks) || numericMarks < 0) return 0;
   const boundedMarks = Math.min(100, numericMarks);
-  if (boundedMarks <= 10) return 1;
-  if (boundedMarks <= 20) return 2;
-  if (boundedMarks <= 30) return 3;
-  if (boundedMarks <= 40) return 4;
-  if (boundedMarks <= 57) return 5;
-  if (boundedMarks <= 74) return 6;
-  if (boundedMarks <= 89) return 7;
-  return 8;
+  const ranges = rangesValue as CbeAchievementRange[];
+  const range = ranges
+    .find((item) => boundedMarks >= item.minimumMark && boundedMarks <= item.maximumMark);
+  return range ? CBE_LEVEL_POINTS[range.level] : 0;
 }
 
-function getSubjectPoints(subject: any) {
-  return getCourseSubjectPoints(subject?.marksScored);
+function getSubjectPoints(subject: any, rangesValue?: unknown) {
+  return getCourseSubjectPoints(subject?.marksScored, rangesValue ?? subject?.cbeAchievementRanges);
 }
 
 function hasRecordedSubjectMark(subject: any) {
@@ -138,29 +236,36 @@ function hasRecordedSubjectMark(subject: any) {
 export function evaluateCourseSubjectPointRequirements(subjects: any[] = [], requirementsValue?: unknown) {
   const requirements = parseCourseClusterRequirements(requirementsValue);
   const groups = getCourseRequirementGroups(requirements);
-  if (!hasCompleteCourseSubjectRequirements(requirements)) return null;
+  if (!hasCompleteCourseScoringData(requirements)) return null;
+  const achievementRanges = requirements?.achievementRanges;
 
   const byId = new Map<string, any>();
   subjects.forEach((subject) => {
+    if (isSupportSubject(subject)) return;
     const id = String(subject?.id || subject?.code || subject?.name || '').trim();
     if (id && hasRecordedSubjectMark(subject)) byId.set(id, subject);
   });
 
   return groups.every((group) => {
     const best = group
-      .map((item) => ({ item, subject: byId.get(item.subjectId) }))
+      .map((item) => {
+        const subject = byId.get(item.subjectId);
+        return { item, subject: subject ? { ...subject, cbeAchievementRanges: item.achievementRanges || subject.cbeAchievementRanges } : undefined };
+      })
       .filter((entry) => entry.subject)
-      .sort((left, right) => getSubjectPoints(right.subject) - getSubjectPoints(left.subject))[0];
-    return Boolean(best && Number.isInteger(best.item.minimumPoints) && getSubjectPoints(best.subject) >= Number(best.item.minimumPoints));
+      .sort((left, right) => getSubjectPoints(right.subject, right.item.achievementRanges || achievementRanges) - getSubjectPoints(left.subject, left.item.achievementRanges || achievementRanges))[0];
+    return Boolean(best && Number.isInteger(best.item.minimumPoints) && getSubjectPoints(best.subject, best.item.achievementRanges || achievementRanges) >= Number(best.item.minimumPoints));
   });
 }
 
-export function calculateCourseClusterScoreDetails(subjects: any[] = [], requirementsValue?: unknown) {
+export function calculateCourseClusterScoreDetails(subjects: any[] = [], requirementsValue?: unknown, rangesValue?: unknown) {
   const requirements = parseCourseClusterRequirements(requirementsValue);
-  if (!hasCompleteCourseSubjectRequirements(requirements)) return null;
+  if (!hasCompleteCourseScoringData(requirements)) return null;
+  const achievementRanges = rangesValue || requirements?.achievementRanges;
 
   const byId = new Map<string, any>();
   subjects.forEach((subject) => {
+    if (isSupportSubject(subject)) return;
     const id = String(subject?.id || subject?.code || subject?.name || '').trim();
     if (id && hasRecordedSubjectMark(subject)) byId.set(id, { ...subject, marksScored: Number(subject.marksScored) });
   });
@@ -168,7 +273,13 @@ export function calculateCourseClusterScoreDetails(subjects: any[] = [], require
   const groups = getCourseRequirementGroups(requirements);
   const selected: any[] = [];
   groups.forEach((group) => {
-    const available = group.map((item) => byId.get(item.subjectId)).filter(Boolean).sort((left, right) => getSubjectPoints(right) - getSubjectPoints(left));
+    const available = group
+      .map((item) => {
+        const subject = byId.get(item.subjectId);
+        return subject ? { ...subject, cbeAchievementRanges: item.achievementRanges || subject.cbeAchievementRanges || achievementRanges } : null;
+      })
+      .filter((subject) => subject !== null)
+      .sort((left, right) => getSubjectPoints(right) - getSubjectPoints(left));
     if (available.length === 0) return;
     selected.push(available[0]);
   });
@@ -178,11 +289,11 @@ export function calculateCourseClusterScoreDetails(subjects: any[] = [], require
   const selectedIds = new Set(selected.map((subject) => String(subject.id || subject.code || subject.name)));
   const topOtherSubjects = Array.from(byId.values())
     .filter((subject) => !selectedIds.has(String(subject.id || subject.code || subject.name)))
-    .sort((left, right) => getSubjectPoints(right) - getSubjectPoints(left))
+    .sort((left, right) => getSubjectPoints(right, achievementRanges) - getSubjectPoints(left, achievementRanges))
     .slice(0, CBE_TOP_SUBJECT_COUNT - selected.length);
-  const clusterPoints = selected.reduce((sum, subject) => sum + getSubjectPoints(subject), 0);
+  const clusterPoints = selected.reduce((sum, subject) => sum + getSubjectPoints(subject, achievementRanges), 0);
   const sevenBestSubjects = [...selected, ...topOtherSubjects];
-  const sevenBestPoints = sevenBestSubjects.reduce((sum, subject) => sum + getSubjectPoints(subject), 0);
+  const sevenBestPoints = sevenBestSubjects.reduce((sum, subject) => sum + getSubjectPoints(subject, achievementRanges), 0);
   const clusterMaximum = CBE_SUBJECT_POINTS_MAX * groups.length;
   const coursePoints = (clusterPoints / clusterMaximum) * (sevenBestPoints / CBE_ATTEMPTED_POINTS_MAX) * clusterMaximum;
   return {
@@ -202,7 +313,7 @@ export function calculateCourseClusterPoints(subjects: any[] = [], requirementsV
 
 export function calculateTertiaryCourseClusterBenchmarkPoints(requirementsValue?: unknown) {
   const requirements = parseCourseClusterRequirements(requirementsValue);
-  if (!hasCompleteCourseSubjectRequirements(requirements)) return null;
+  if (!hasCompleteCourseScoringData(requirements)) return null;
 
   const groups = getCourseRequirementGroups(requirements);
   const minimumClusterPoints = groups.reduce((sum, group) => {
@@ -210,8 +321,7 @@ export function calculateTertiaryCourseClusterBenchmarkPoints(requirementsValue?
     return sum + leastDemandingAlternative;
   }, 0);
   const clusterMaximum = CBE_SUBJECT_POINTS_MAX * groups.length;
-  const remainingBestSubjectSlots = Math.max(0, CBE_TOP_SUBJECT_COUNT - groups.length);
-  const sevenBestPoints = minimumClusterPoints + remainingBestSubjectSlots * 5;
+  const sevenBestPoints = Number(requirements?.bestSubjectsMinimumPoints);
   const benchmark = (minimumClusterPoints / clusterMaximum) * (sevenBestPoints / CBE_ATTEMPTED_POINTS_MAX) * clusterMaximum;
 
   return Math.round(benchmark * 100) / 100;
@@ -243,13 +353,14 @@ function parseSupportProfile(profile: any) {
   }
 }
 
-export function calculateHistoricalClusterSeries(learner: any, profile: any, subjectsIn?: any[] | undefined) {
+export function calculateHistoricalClusterSeries(learner: any, profile: any, subjectsIn?: any[] | undefined, supportSubjectIds: ReadonlySet<string> = new Set<string>()) {
   const currentGrade = Number(String(learner?.gradeLevel || '').replace(/\D/g, '')) || 7;
-  const courseRequirements = parseCourseClusterRequirements(profile?.clusterRequirements || profile?.courseClusterRequirements);
-  const hasCourseRequirements = hasCompleteCourseSubjectRequirements(courseRequirements);
-
   const parsedSupportProfile = parseSupportProfile(profile);
   const supportProfileData = parseSupportProfileValue(profile) || {};
+  const courseRequirements = parseCourseClusterRequirements(
+    profile?.clusterRequirements || supportProfileData?.clusterRequirements || profile?.courseClusterRequirements,
+  );
+  const hasCourseRequirements = hasCompleteCourseScoringData(courseRequirements);
   const historicalSubjects = Array.isArray(profile?.historicalSelectedSubjects)
     ? profile.historicalSelectedSubjects
     : Array.isArray(supportProfileData.historicalSelectedSubjects) ? supportProfileData.historicalSelectedSubjects : [];
@@ -264,6 +375,8 @@ export function calculateHistoricalClusterSeries(learner: any, profile: any, sub
     subjectMap.set(id, {
       ...(previous || {}),
       ...subject,
+      category: subject?.category || previous?.category,
+      subjectCategory: subject?.subjectCategory || previous?.subjectCategory,
       history: [...(Array.isArray(previous?.history) ? previous.history : []), ...(Array.isArray(subject?.history) ? subject.history : [])],
     });
   });
@@ -302,7 +415,8 @@ export function calculateHistoricalClusterSeries(learner: any, profile: any, sub
   };
 
   const series = GRADE_AXIS.map<ClusterSeriesPoint | null>((grade) => {
-    const gradeSubjects = subjects
+    const gradeSubjectSource = grade >= 10 ? subjects.filter((subject) => !isSupportSubject(subject, supportSubjectIds)) : subjects;
+    const gradeSubjects = gradeSubjectSource
       .map((subject) => ({ subject, mark: validMarkForGrade(subject, grade) }))
       .filter((entry): entry is { subject: any; mark: { value: number; target: number | null } } => entry.mark !== null);
 
@@ -348,7 +462,9 @@ export function calculateHistoricalClusterSeries(learner: any, profile: any, sub
       target: undefined,
       learnerTarget,
       tertiaryTarget,
-      deviation: 0,
+      deviation: details && tertiaryTarget !== undefined
+        ? calculateDeviationPercentage(details.points, tertiaryTarget) ?? 0
+        : 0,
     };
   })
     .filter((entry): entry is ClusterSeriesPoint => entry !== null && Number.isFinite(Number(entry.value)));

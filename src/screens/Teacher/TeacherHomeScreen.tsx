@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import useSessionUser from '../../hooks/useSessionUser';
 import {
   ActivityIndicator,
@@ -22,8 +22,10 @@ import ViewPerformance from '../../components/teacher/ViewPerformance';
 import SectionCard from '../../components/shared/SectionCard';
 import SubjectPerformanceGraph from '../../components/shared/SubjectPerformanceGraph';
 import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
-import calculateHistoricalClusterSeries, { calculateCourseClusterPoints, calculateDeviationPercentage, evaluateCourseSubjectPointRequirements, getCbeAchievementLevel, getCourseRequirementGroups, getMissingClusterGrades, hasCompleteCourseSubjectRequirements, hasCourseSubjectPointRequirements, parseCourseClusterRequirements } from '../../utils/cluster';
+import calculateHistoricalClusterSeries, { calculateCourseClusterPoints, calculateCourseClusterScoreDetails, calculateDeviationPercentage, calculateTertiaryCourseClusterBenchmarkPoints, evaluateCourseSubjectPointRequirements, getCbeAchievementLevel, getCourseRequirementGroups, getMissingClusterGrades, hasCompleteCourseScoringData, hasCompleteCourseSubjectRequirements, hasCourseSubjectPointRequirements, parseCourseClusterRequirements } from '../../utils/cluster';
 import { parseLearnerSupportProfile, resolveLearnerCareerTarget } from '../../utils/learnerCareer';
+import { filterSupportSubjects } from '../../utils/supportSubjects';
+import { loadSupportSubjectIds } from '../../hooks/useSupportSubjectFilter';
 import {
   createAssessmentRubric,
   createGrade12ResultSummary,
@@ -31,12 +33,18 @@ import {
   createLearnerEnrollment,
   createLearnerProfile,
   createAcademicRecord,
+  createLearnerSubjectPerformance,
+  createLearnerSubjectPerformanceTarget,
   updateGrade12ResultSummary,
+  updateLearnerSubjectPerformance,
+  updateLearnerSubjectPerformanceTarget,
   updateLearnerEnrollment,
   createUser,
   updateLearnerProfile,
 } from '../../graphql/mutations';
 import {
+  getLearnerProfile,
+  getLearnerSubjectPerformance,
   listCoreSubjects,
   listGrade12ResultSummaries,
   listInterventions,
@@ -117,6 +125,47 @@ type LearnerDocumentResourceRecord = {
 
 const ACADEMIC_YEAR = '2026';
 const STORAGE_BUCKET = awsmobile.aws_user_files_s3_bucket;
+
+const describeSyncError = (error: unknown): string => {
+  if (error instanceof Error) {
+    const cause = 'cause' in error ? (error as Error & { cause?: unknown }).cause : undefined;
+    return cause === undefined
+      ? `${error.name}: ${error.message}`
+      : `${error.name}: ${error.message}; cause: ${describeSyncError(cause)}`;
+  }
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const details = error as {
+      name?: unknown;
+      message?: unknown;
+      errors?: unknown;
+      errorType?: unknown;
+      path?: unknown;
+      extensions?: unknown;
+    };
+    const toJson = (value: unknown): string => {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return '[unserializable details]';
+      }
+    };
+    const message = typeof details.message === 'string' ? details.message : '';
+    const serialized = (() => {
+      return toJson(error);
+    })();
+    const description = [
+      typeof details.name === 'string' ? details.name : '',
+      message,
+      details.errorType ? `errorType=${String(details.errorType)}` : '',
+      details.path ? `path=${toJson(details.path)}` : '',
+      details.extensions ? `extensions=${toJson(details.extensions)}` : '',
+      details.errors ? `errors=${toJson(details.errors)}` : '',
+    ].filter(Boolean).join('; ');
+    return description || serialized || Object.prototype.toString.call(error);
+  }
+  return String(error);
+};
 
 export default function TeacherHomeScreen() {
   const client = useMemo(() => generateClient(), []);
@@ -224,11 +273,10 @@ export default function TeacherHomeScreen() {
     return careerOptions.filter((career) => {
       const institutionMatches = !institutionQuery || (career.institutionName || '').toLowerCase().includes(institutionQuery);
       const courseMatches = !courseQuery || career.courseName.toLowerCase().includes(courseQuery);
-      return institutionMatches && courseMatches && hasCompleteCourseSubjectRequirements(career.clusterRequirements);
+      return institutionMatches && courseMatches && hasCompleteCourseScoringData(career.clusterRequirements);
     });
   }, [careerOptions, courseFilterInstitution, courseFilterCourseName]);
   const [promotingLearner, setPromotingLearner] = useState(false);
-  const [reassigningSubjects, setReassigningSubjects] = useState(false);
   const [resettingCareerTarget, setResettingCareerTarget] = useState(false);
   const [resettingSubjectTargets, setResettingSubjectTargets] = useState(false);
   const [expandedSubjectsLearnerId, setExpandedSubjectsLearnerId] = useState<string | null>(null);
@@ -260,6 +308,7 @@ export default function TeacherHomeScreen() {
   const [subjectFilterQuery, setSubjectFilterQuery] = useState('');
   const [targetMarksInput, setTargetMarksInput] = useState('');
   const [courseTargetMarkDrafts, setCourseTargetMarkDrafts] = useState<Record<string, string>>({});
+  const [subjectAssignmentBlockReason, setSubjectAssignmentBlockReason] = useState('');
 
   useEffect(() => {
     void loadTeacherContext();
@@ -492,6 +541,19 @@ export default function TeacherHomeScreen() {
         status: item.status,
       }));
 
+      const boundaryLearners = mapped.filter((learner) => ['9', '10'].includes(String(learner.gradeLevel || '').replace(/\D/g, '')));
+      if (boundaryLearners.length > 0) {
+        console.log('[TEACHER_GRADE_BOUNDARY] roster loaded', {
+          selectedClassCode: classCode,
+          learners: boundaryLearners.map(({ id, learnerId, gradeLevel, classCode: learnerClassCode }) => ({
+            id,
+            learnerId,
+            gradeLevel,
+            classCode: learnerClassCode,
+          })),
+        });
+      }
+
       setLearners(mapped);
       await Promise.all([
         ...mapped.map((learner) => loadSelectedLearnerSubjects(learner.id)),
@@ -505,11 +567,58 @@ export default function TeacherHomeScreen() {
     }
   };
 
+  const assessmentNumberExists = async (value: string) => {
+    const normalizedAssessmentNumber = value.trim();
+    let nextToken: string | null = null;
+
+    do {
+      const result = await client.graphql({
+        query: listLearnerProfiles,
+        variables: {
+          filter: { assessmentNumber: { eq: normalizedAssessmentNumber } },
+          limit: 500,
+          nextToken,
+        },
+      }) as {
+        data?: { listLearnerProfiles?: { items?: Array<{ id?: string }>; nextToken?: string | null } };
+        errors?: Array<{ message?: string }>;
+      };
+      if (result.errors?.length) {
+        throw new Error(result.errors.map((error) => error.message || 'Unknown GraphQL error').join('; '));
+      }
+
+      const connection = result.data?.listLearnerProfiles;
+      if (!connection) throw new Error('The learner assessment-number lookup response was empty.');
+      if ((connection.items || []).some((learner) => Boolean(learner?.id))) return true;
+      nextToken = connection.nextToken || null;
+    } while (nextToken);
+
+    return false;
+  };
+
   useEffect(() => {
     if (selectedClassCode) {
       void loadClassLearners(selectedClassCode);
     }
   }, [selectedClassCode, teacherContext]);
+
+  useEffect(() => {
+    if (!subjectModalVisible || !selectedLearnerForSubjects) return;
+
+    const rosterLearner = learners.find((learner) => learner.id === selectedLearnerForSubjects.id);
+    const selectedGrade = String(selectedLearnerForSubjects.gradeLevel || '').replace(/\D/g, '');
+    if (!['9', '10'].includes(selectedGrade)) return;
+
+    console.log('[TEACHER_GRADE_BOUNDARY] assignment panel grade', {
+      learnerId: selectedLearnerForSubjects.id,
+      selectedLearnerGrade: selectedLearnerForSubjects.gradeLevel,
+      rosterLearnerGrade: rosterLearner?.gradeLevel || null,
+      selectedLearnerClassCode: selectedLearnerForSubjects.classCode || null,
+      rosterLearnerClassCode: rosterLearner?.classCode || null,
+      selectedClassCode,
+      displayedAssignmentGrade: selectedLearnerForSubjects.gradeLevel || rosterLearner?.gradeLevel || null,
+    });
+  }, [subjectModalVisible, selectedLearnerForSubjects, learners, selectedClassCode]);
 
   const loadSelectedLearnerSubjects = async (learnerId: string) => {
     try {
@@ -1039,6 +1148,17 @@ export default function TeacherHomeScreen() {
   };
 
   const openSubjectCategoryModal = async (learner: LearnerRecord) => {
+    const originalGrade = String(learner.gradeLevel || '').replace(/\D/g, '');
+    if (['9', '10'].includes(originalGrade)) {
+      console.log('[TEACHER_GRADE_BOUNDARY] opening subject assignment', {
+        learnerId: learner.id,
+        profileGrade: learner.gradeLevel || null,
+        effectiveAssignmentGrade: learner.gradeLevel || null,
+        learnerClassCode: learner.classCode || null,
+        selectedClassCode,
+      });
+    }
+
     setSelectedLearnerForSubjects(learner);
     setSelectedSubjectCandidate(null);
     setTargetMarksInput('');
@@ -1047,6 +1167,7 @@ export default function TeacherHomeScreen() {
     setSelectedSubjectCategory('');
     setSubjectSelectionStep('category');
     setCourseTargetMarkDrafts({});
+    setSubjectAssignmentBlockReason('');
     setSubjectFilterQuery('');
     setSubjectModalVisible(true);
     if (Number(String(learner.gradeLevel || '').replace(/\D/g, '')) >= 10) {
@@ -1059,11 +1180,35 @@ export default function TeacherHomeScreen() {
   const syncSeniorCourseSubjects = async (learner: LearnerRecord) => {
     setSubjectGroupsLoading(true);
     try {
-      const learnerResult = await client.graphql({
-        query: listLearnerProfiles,
-        variables: { filter: { id: { eq: learner.id } }, limit: 1 },
-      });
-      const learnerRecord = (learnerResult as any).data?.listLearnerProfiles?.items?.[0];
+      const profileResult: any = await client.graphql({
+        query: getLearnerProfile,
+        variables: { id: learner.id },
+      } as any);
+      if (profileResult.errors?.length) {
+        throw new Error(profileResult.errors.map((error: any) => error.message || 'Unknown GraphQL error').join('; '));
+      }
+      let learnerRecord = profileResult.data?.getLearnerProfile;
+      if (!learnerRecord?.id) {
+        const candidateFilters = [
+          ...(learner.learnerId ? [{ learnerId: { eq: learner.learnerId } }] : []),
+          ...(learner.assessmentNumber && teacherContext?.schoolCode && learner.classCode
+            ? [{ and: [{ schoolCode: { eq: teacherContext.schoolCode } }, { classCode: { eq: learner.classCode } }, { assessmentNumber: { eq: learner.assessmentNumber } }] }]
+            : []),
+        ];
+        for (const filter of candidateFilters) {
+          const fallbackResult: any = await client.graphql({
+            query: listLearnerProfiles,
+            variables: { filter, limit: 20 },
+          } as any);
+          if (fallbackResult.errors?.length) {
+            throw new Error(fallbackResult.errors.map((error: any) => error.message || 'Unknown GraphQL error').join('; '));
+          }
+          learnerRecord = fallbackResult.data?.listLearnerProfiles?.items?.find((item: any) =>
+            item?.id && item?.schoolCode === teacherContext?.schoolCode && item?.assessmentNumber === learner.assessmentNumber,
+          );
+          if (learnerRecord?.id) break;
+        }
+      }
       if (!learnerRecord?.id) throw new Error('Learner profile could not be loaded.');
 
       const currentProfile = parseLearnerSupportProfile(learnerRecord.supportProfile) || {};
@@ -1074,9 +1219,16 @@ export default function TeacherHomeScreen() {
       );
       const requirements = parseCourseClusterRequirements(selectedCareer?.clusterRequirements || currentProfile.clusterRequirements);
       const requiredItems = requirements?.subjectSequence || [];
+      if (!hasCompleteCourseScoringData(requirements)) {
+        const message = 'Subjects cannot be attached yet. This course is missing saved national CBE score ranges or the tertiary seven-best minimum. Ask the National Officer to save all eight ranges and the tertiary officer to complete the course scoring requirements.';
+        setSubjectAssignmentBlockReason(message);
+        setNotice(message);
+        return;
+      }
       if (requiredItems.length === 0) {
-        await loadSelectedLearnerSubjects(learner.id);
-        setNotice(`${learner.fullName} has no configured course subject requirements to prefill.`);
+        const message = `${learner.fullName}'s selected course has no configured subject requirements. Ask the tertiary officer to complete the course setup before attaching subjects.`;
+        setSubjectAssignmentBlockReason(message);
+        setNotice(message);
         return;
       }
 
@@ -1091,6 +1243,16 @@ export default function TeacherHomeScreen() {
         ...((electiveResult as any).data?.listSubjects?.items || []).map((item: any) => ({ ...item, category: 'Electives' })),
       ].filter((item: any, index: number, items: any[]) => item?.id && item?.name && items.findIndex((candidate) => candidate?.id === item.id) === index);
       const catalogById = new Map<string, any>(catalog.map((item: any) => [String(item.id), item]));
+      const missingCourseSubjects = requiredItems.filter((requirement) => {
+        const item = catalogById.get(String(requirement.subjectId));
+        return !item?.id || !String(item.code || '').trim() || !String(item.name || '').trim();
+      });
+      if (missingCourseSubjects.length > 0) {
+        const message = `Subjects cannot be attached because course subject details are missing from the National Catalog: ${missingCourseSubjects.map((item) => item.subjectName || item.subjectId).join(', ')}. Ask the National Officer to complete each subject's code and name.`;
+        setSubjectAssignmentBlockReason(message);
+        setNotice(message);
+        return;
+      }
       const existingSubjects = Array.isArray(currentProfile.selectedSubjects) ? currentProfile.selectedSubjects : [];
       const existingById = new Map<string, any>(existingSubjects.map((item: any) => [String(item?.id || ''), item]));
       const requiredSubjects = requiredItems
@@ -1122,6 +1284,7 @@ export default function TeacherHomeScreen() {
         targetInstitutionId: currentProfile.targetInstitutionId || selectedCareer?.institutionId || null,
         targetInstitutionName: currentProfile.targetInstitutionName || selectedCareer?.institutionName || null,
         clusterRequirements: selectedCareer?.clusterRequirements || currentProfile.clusterRequirements || null,
+        excludedCourseSubjectIds: [],
         selectedSubjects: nextSubjects,
       };
 
@@ -1147,8 +1310,8 @@ export default function TeacherHomeScreen() {
       setNotice(`Course-required subjects for ${selectedCareer?.courseName || learner.fullName} are loaded. Enter target marks before adding other subjects.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load course-required learner subjects.';
+      setSubjectAssignmentBlockReason(`Subjects cannot be attached because the course scoring and required subject data could not be verified. ${message}`);
       setNotice(message);
-      await loadSelectedLearnerSubjects(learner.id);
     } finally {
       setSubjectGroupsLoading(false);
     }
@@ -1157,8 +1320,9 @@ export default function TeacherHomeScreen() {
   const saveSeniorCourseTargets = async (learner: LearnerRecord) => {
     const profile = learnerProfileMap[learner.id] || {};
     const supportProfile = parseLearnerSupportProfile(profile.supportProfile) || profile;
-    const requiredItems = parseCourseClusterRequirements(supportProfile.clusterRequirements)?.subjectSequence || [];
+    const configuredRequirements = parseCourseClusterRequirements(supportProfile.clusterRequirements)?.subjectSequence || [];
     const learnerSubjects = Array.isArray(supportProfile.selectedSubjects) ? supportProfile.selectedSubjects : [];
+    const requiredItems = configuredRequirements;
     const nextTargets = new Map<string, number>();
 
     for (const requirement of requiredItems) {
@@ -1172,7 +1336,7 @@ export default function TeacherHomeScreen() {
     }
 
     if (nextTargets.size === 0) {
-      setNotice('No course-required subjects are configured for this learner.');
+      setNotice('No course-required subjects are currently assigned to this learner.');
       return;
     }
 
@@ -1181,7 +1345,7 @@ export default function TeacherHomeScreen() {
       const learnerProfileId = String(profile.id || learner.id);
       const currentProfile = supportProfile;
       const existingSubjects = Array.isArray(currentProfile.selectedSubjects) ? currentProfile.selectedSubjects : learnerSubjects;
-      const currentRequirements = parseCourseClusterRequirements(currentProfile.clusterRequirements)?.subjectSequence || requiredItems;
+      const currentRequirements = parseCourseClusterRequirements(currentProfile.clusterRequirements)?.subjectSequence || configuredRequirements;
       const existingById = new Map<string, any>(existingSubjects.map((subject: any) => [String(subject?.id || subject?.code || ''), subject]));
       const requiredSubjects = currentRequirements.map((requirement) => {
         const subjectId = String(requirement.subjectId);
@@ -1200,8 +1364,11 @@ export default function TeacherHomeScreen() {
         };
       });
       const savedRequiredIds = new Set(requiredSubjects.map((subject) => subject.id));
-      const updatedSubjects = [...requiredSubjects, ...existingSubjects.filter((subject: any) => !savedRequiredIds.has(String(subject?.id || subject?.code || '')))];
-      const nextProfile = { ...currentProfile, selectedSubjects: updatedSubjects };
+      const updatedSubjects = [
+        ...requiredSubjects,
+        ...existingSubjects.filter((subject: any) => !savedRequiredIds.has(String(subject?.id || subject?.code || ''))),
+      ];
+      const nextProfile = { ...currentProfile, excludedCourseSubjectIds: [], selectedSubjects: updatedSubjects };
 
       const updateResult = await client.graphql({
         query: updateLearnerProfile,
@@ -1218,6 +1385,37 @@ export default function TeacherHomeScreen() {
       });
       if (missingSavedTargets.length > 0) throw new Error('The server response did not include every course-required target mark.');
 
+      const factSyncFailures: Array<{ subject: string; stage: string; message: string }> = [];
+      const syncLearner = {
+        ...profile,
+        ...learner,
+        id: learnerProfileId,
+        supportProfile: { ...confirmedProfile, selectedSubjects: confirmedSubjects },
+      };
+      for (const requirement of currentRequirements) {
+        const subject = confirmedSubjects.find((item: any) => String(item?.id || item?.code || '') === String(requirement.subjectId));
+        if (!subject) continue;
+        let syncStage = 'preparing annual reporting fact';
+        try {
+          await syncLearnerSubjectPerformance(syncLearner, subject, { includeAchievedMark: false });
+        } catch (syncError) {
+          const subjectName = String(subject.name || subject.code || requirement.subjectId);
+          const message = describeSyncError(syncError);
+          const causeText = message.toLowerCase();
+          syncStage = causeText.includes('annual cluster fact')
+            ? 'annual cluster fact sync'
+            : causeText.includes('annual fact lookup')
+              ? 'annual fact lookup'
+              : causeText.includes('annual fact create')
+                ? 'annual fact create'
+                : causeText.includes('annual fact update')
+                  ? 'annual fact update'
+                  : syncStage;
+          factSyncFailures.push({ subject: subjectName, stage: syncStage, message });
+          console.warn('[NATIONAL_TARGET_FACT_SYNC_FAILED]', { subject: subjectName, stage: syncStage, message, learnerId: learner.id, error: syncError });
+        }
+      }
+
       setLearnerProfileMap((current) => ({ ...current, [learner.id]: confirmedProfile }));
       setLearnerSubjectsMap((current) => ({
         ...current,
@@ -1230,8 +1428,16 @@ export default function TeacherHomeScreen() {
           marksScored: subject.marksScored ?? null,
         })),
       }));
-      setNotice('Course-required target marks saved. You can now add other subjects.');
-      Alert.alert('Course targets saved', 'The required subjects and target marks were saved. You can now add other subjects.');
+      const failedSubjects = factSyncFailures.map((failure) => failure.subject);
+      const factSyncMessages = Array.from(new Set(factSyncFailures.map((failure) => `${failure.stage}: ${failure.message}`)));
+      const factSyncNotice = factSyncFailures.length
+        ? ` National reporting sync failed for ${failedSubjects.join(', ')}: ${factSyncMessages.join('; ')}. Save the targets again to retry.`
+        : '';
+      setNotice(`Course-required target marks saved. You can now add other subjects.${factSyncNotice}`);
+      Alert.alert(
+        factSyncFailures.length ? 'Targets saved; reporting sync incomplete' : 'Course targets saved',
+        `The required subjects and target marks were saved. You can now add other subjects.${factSyncNotice}`,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save course-required target marks.';
       setNotice(message);
@@ -1244,18 +1450,18 @@ export default function TeacherHomeScreen() {
   const getSeniorCourseTargetState = (learnerId: string) => {
     const profile = learnerProfileMap[learnerId] || {};
     const supportProfile = parseLearnerSupportProfile(profile.supportProfile) || profile;
-    const requirements = parseCourseClusterRequirements(supportProfile.clusterRequirements)?.subjectSequence || [];
+    const configuredRequirements = parseCourseClusterRequirements(supportProfile.clusterRequirements)?.subjectSequence || [];
     const subjects = learnerSubjectsMap[learnerId] || [];
-    const requiredSubjects = requirements.map((requirement) => ({
+    const requiredSubjects = configuredRequirements.map((requirement) => ({
       requirement,
       subject: subjects.find((item) => item.id === requirement.subjectId),
     }));
-    const targetsSaved = requiredSubjects.length > 0 && requiredSubjects.every(({ subject }) => {
+    const targetsSaved = requiredSubjects.length === 0 || requiredSubjects.every(({ subject }) => {
       const target = Number(subject?.targetMarks);
       return subject?.targetMarks !== null && subject?.targetMarks !== undefined && Number.isFinite(target) && target >= 0 && target <= 100;
     });
 
-    return { requirements, requiredSubjects, targetsSaved };
+    return { requirements: requiredSubjects, requiredSubjects, targetsSaved };
   };
 
   const loadCategorySubjects = async (
@@ -1399,18 +1605,33 @@ export default function TeacherHomeScreen() {
       })();
 
       const existingSubjects = Array.isArray(currentProfile.selectedSubjects) ? currentProfile.selectedSubjects : [];
-      const nextSubjects = existingSubjects.filter((item: any) => item?.id !== subjectId);
+      const nextSubjects = existingSubjects.filter((item: any) => String(item?.id || '') !== String(subjectId));
+      const isCourseSubject = (parseCourseClusterRequirements(currentProfile.clusterRequirements)?.subjectSequence || [])
+        .some((requirement) => String(requirement.subjectId) === String(subjectId));
 
-      await client.graphql({
+      const updateResult: any = await client.graphql({
         query: updateLearnerProfile,
         variables: {
           input: {
             id: learnerRecord.id,
-            supportProfile: JSON.stringify({ ...currentProfile, selectedSubjects: nextSubjects }),
+            supportProfile: JSON.stringify({
+              ...currentProfile,
+              selectedSubjects: nextSubjects,
+              excludedCourseSubjectIds: [],
+            }),
           },
         },
       });
+      if (updateResult.errors?.length) {
+        throw new Error(updateResult.errors.map((error: any) => error.message || 'Unknown GraphQL error').join('; '));
+      }
+      if (!updateResult.data?.updateLearnerProfile?.id) {
+        throw new Error('The learner profile update was not confirmed by the server.');
+      }
 
+      if (isCourseSubject) {
+        setCourseTargetMarkDrafts((current) => ({ ...current, [subjectId]: '' }));
+      }
       await loadSelectedLearnerSubjects(learnerId);
       setNotice('Subject removed from learner.');
     } catch (error) {
@@ -1423,6 +1644,18 @@ export default function TeacherHomeScreen() {
   const addSubjectToLearner = async (subject: SubjectCatalogItem, targetMarks?: string) => {
     if (!selectedLearnerForSubjects) {
       setNotice('No learner was selected for subject assignment.');
+      return;
+    }
+
+    const gradeNumber = Number(String(selectedLearnerForSubjects.gradeLevel || '').replace(/\D/g, '')) || 0;
+    if (!String(subject.id || '').trim() || !String(subject.code || '').trim() || !String(subject.name || '').trim()) {
+      Alert.alert('Subject details missing', 'This subject is missing its catalog ID, code, or name. Ask the National Officer to complete the subject record before attaching it.');
+      return;
+    }
+    const targetValue = String(targetMarks || '').trim();
+    const parsedTarget = Number(targetValue);
+    if (!targetValue || !Number.isFinite(parsedTarget) || parsedTarget < 0 || parsedTarget > 100) {
+      Alert.alert('Target marks required', 'Enter a target mark from 0 to 100 before attaching this subject.');
       return;
     }
 
@@ -1466,10 +1699,17 @@ export default function TeacherHomeScreen() {
         ? (currentProfile as any).selectedSubjects
         : [];
 
-      if (Number(String(selectedLearnerForSubjects.gradeLevel || learnerRecord.gradeLevel || '').replace(/\D/g, '')) >= 10) {
-        const requiredIds = new Set((parseCourseClusterRequirements(currentProfile.clusterRequirements)?.subjectSequence || []).map((item) => item.subjectId));
+      if (gradeNumber >= 10) {
+        const courseRequirements = parseCourseClusterRequirements(currentProfile.clusterRequirements);
+        if (!hasCompleteCourseScoringData(courseRequirements)) {
+          const message = 'This learner cannot receive attached subjects yet. The selected course is missing saved national CBE score ranges, the tertiary seven-best minimum, or complete cluster requirements. Complete those records first.';
+          setSubjectAssignmentBlockReason(message);
+          Alert.alert('Course scoring data missing', message);
+          return;
+        }
+        const requiredIds = new Set((courseRequirements?.subjectSequence || []).map((item) => item.subjectId));
         if (requiredIds.has(String(subject.id))) {
-          Alert.alert('Course-required subject', `${subject.name} is required by the learner's selected course and cannot be removed here.`);
+          Alert.alert('Course-required subject', `${subject.name} is managed in the learner's course-required target list.`);
           return;
         }
       }
@@ -1509,14 +1749,15 @@ export default function TeacherHomeScreen() {
         name: subject.name,
         category: subject.category || selectedSubjectCategory || null,
         learningAreaCode: subject.learningAreaCode || null,
-        targetMarks: targetMarks && targetMarks.trim() ? Number(targetMarks.trim()) : null,
-        marksScored: 0,
+        targetMarks: parsedTarget,
+        marksScored: null,
       };
 
       const nextSubjects = [...existingSubjects, normalizedSubject];
 
       const supportProfilePayload = {
         ...currentProfile,
+        excludedCourseSubjectIds: [],
         selectedSubjects: nextSubjects,
       };
 
@@ -1561,7 +1802,7 @@ export default function TeacherHomeScreen() {
   };
 
   const calculateLearnerClusterPoints = (learner: LearnerRecord, clusterRequirements?: unknown): number | null => {
-    if (!hasCompleteCourseSubjectRequirements(clusterRequirements)) return null;
+    if (!hasCompleteCourseScoringData(clusterRequirements)) return null;
     const subjects = learnerSubjectsMap[learner.id] || [];
     const attempted = subjects
       .filter((subject) => typeof subject.marksScored === 'number' && !Number.isNaN(subject.marksScored))
@@ -1603,7 +1844,7 @@ export default function TeacherHomeScreen() {
       const institutionName = typeof supportProfile?.targetInstitutionName === 'string' ? supportProfile.targetInstitutionName.trim() : null;
       const selectedCareer = careerOptions.find((career) => career.id === selectedCareerId || career.courseName === targetCareerName);
       const selectedRequirements = selectedCareer?.clusterRequirements || supportProfile?.clusterRequirements;
-      const hasSubjectRequirements = hasCompleteCourseSubjectRequirements(selectedRequirements);
+      const hasSubjectRequirements = hasCompleteCourseScoringData(selectedRequirements);
       const subjectPointsStatus = evaluateCourseSubjectPointRequirements(
         learnerSubjectsMap[learnerRecord.id] || [],
         selectedRequirements,
@@ -1690,6 +1931,131 @@ export default function TeacherHomeScreen() {
     }
   };
 
+  const syncLearnerSubjectPerformance = async (
+    learner: any,
+    subject: any,
+    options: { includeAchievedMark?: boolean } = {},
+  ) => {
+    const gradeLevel = Number(String(learner?.gradeLevel || '').replace(/\D/g, ''));
+    const learnerId = String(learner?.id || '').trim();
+    const subjectId = String(subject?.id || subject?.code || '').trim();
+    if (!learnerId || !subjectId || !Number.isInteger(gradeLevel) || gradeLevel < 1) return;
+
+    const schoolCode = String(learner?.schoolCode || teacherContext?.schoolCode || '').trim();
+    const learnerClassCode = String(learner?.classCode || selectedClassCode || '').trim();
+    const academicYear = String(learner?.academicYear || assignedClasses.find((classItem) => classItem.classCode === learnerClassCode)?.academicYear || new Date().getFullYear()).trim();
+    if (!schoolCode || !academicYear) throw new Error('The learner school and class academic year must be configured before reporting sync.');
+
+    const termOrCycle = 'EndOfYear';
+    const id = `${learnerId}#${gradeLevel}#${subjectId}#${academicYear}#EOY`;
+    const profile = parseLearnerSupportProfile(learner?.supportProfile) || {};
+    const achievedMark = subject?.marksScored === null || subject?.marksScored === undefined || subject?.marksScored === ''
+      ? null
+      : Number(subject.marksScored);
+    const input: Record<string, any> = {
+      id,
+      learnerId,
+      subjectId,
+      subjectName: String(subject?.name || subject?.code || subjectId),
+      gradeLevel,
+      academicYear,
+      termOrCycle,
+      nationCode: learner.nationCode || teacherContext?.nationCode,
+      regionCode: learner.regionCode || teacherContext?.regionCode,
+      countyCode: learner.countyCode || teacherContext?.countyCode,
+      subCountyCode: learner.subCountyCode || teacherContext?.subCountyCode,
+      schoolCode,
+      targetMark: subject?.targetMarks !== null &&
+        subject?.targetMarks !== undefined &&
+        subject?.targetMarks !== '' &&
+        Number.isFinite(Number(subject.targetMarks))
+        ? Number(subject.targetMarks)
+        : null,
+      targetCareerId: learner.selectedCareerId || profile.targetCareerId || profile.selectedCareerId || null,
+      courseRequirementsSnapshot: profile.clusterRequirements ? JSON.stringify(profile.clusterRequirements) : null,
+      nationGradeKey: `${String(learner.nationCode || teacherContext?.nationCode || '').trim().toUpperCase()}#${gradeLevel}`,
+    };
+    if (options.includeAchievedMark !== false) {
+      input.achievedMark = achievedMark !== null && Number.isFinite(achievedMark) && achievedMark >= 0
+        ? achievedMark
+        : null;
+    }
+
+    const upsertFact = async (factInput: Record<string, any>) => {
+      let existingResult: any;
+      try {
+        existingResult = await client.graphql({
+          query: getLearnerSubjectPerformance,
+          variables: { id: factInput.id },
+        } as any);
+      } catch (error) {
+        throw new Error(`Annual fact lookup failed: ${describeSyncError(error)}`);
+      }
+      if (existingResult.errors?.length) {
+        throw new Error(`Annual fact lookup failed: ${describeSyncError({ errors: existingResult.errors })}`);
+      }
+
+      const existingFact = existingResult.data?.getLearnerSubjectPerformance;
+      let mutationResult: any;
+      const mutationName = existingFact ? 'update' : 'create';
+      try {
+        mutationResult = await client.graphql({
+          query: options.includeAchievedMark === false
+            ? existingFact ? updateLearnerSubjectPerformanceTarget : createLearnerSubjectPerformanceTarget
+            : existingFact ? updateLearnerSubjectPerformance : createLearnerSubjectPerformance,
+          variables: { input: factInput },
+        } as any);
+      } catch (error) {
+        throw new Error(`Annual fact ${mutationName} failed: ${describeSyncError(error)}`);
+      }
+      if (mutationResult.errors?.length) {
+        throw new Error(`Annual fact ${mutationName} failed: ${describeSyncError({ errors: mutationResult.errors })}`);
+      }
+      const savedFact = existingFact
+        ? mutationResult.data?.updateLearnerSubjectPerformance
+        : mutationResult.data?.createLearnerSubjectPerformance;
+      if (!savedFact?.id) {
+        throw new Error(`Annual fact ${mutationName} returned no saved record for ${factInput.subjectName || factInput.id}.`);
+      }
+    };
+
+    await upsertFact(input);
+
+    if (gradeLevel < 10) return;
+    const selectedSubjects = filterSupportSubjects(
+      Array.isArray(profile.selectedSubjects) ? profile.selectedSubjects : [],
+      await loadSupportSubjectIds(),
+    );
+    const requirements = parseCourseClusterRequirements(profile.clusterRequirements);
+    const achievedSubjects = selectedSubjects
+      .filter((item: any) => item?.marksScored !== null && item?.marksScored !== undefined && Number.isFinite(Number(item.marksScored)))
+      .map((item: any) => ({ id: String(item.id || item.code), marksScored: Number(item.marksScored) }));
+    const targetSubjects = selectedSubjects
+      .filter((item: any) => item?.targetMarks !== null && item?.targetMarks !== undefined && Number.isFinite(Number(item.targetMarks)))
+      .map((item: any) => ({ id: String(item.id || item.code), marksScored: Number(item.targetMarks) }));
+    const achievedCluster = calculateCourseClusterScoreDetails(achievedSubjects, requirements);
+    const targetCluster = calculateCourseClusterScoreDetails(targetSubjects, requirements);
+    const tertiaryBenchmark = calculateTertiaryCourseClusterBenchmarkPoints(requirements);
+
+    try {
+      const clusterFact: Record<string, any> = {
+        ...input,
+        id: `${learnerId}#${gradeLevel}#__ANNUAL_CLUSTER__#${academicYear}#EOY`,
+        subjectId: '__ANNUAL_CLUSTER__',
+        subjectName: 'Annual course cluster',
+        targetMark: targetCluster?.points ?? null,
+        tertiaryBenchmark: tertiaryBenchmark ?? null,
+        courseRequirementsSnapshot: requirements ? JSON.stringify(requirements) : null,
+      };
+      if (options.includeAchievedMark !== false) {
+        clusterFact.achievedMark = achievedCluster?.points ?? null;
+      }
+      await upsertFact(clusterFact);
+    } catch (error) {
+      throw new Error(`Annual cluster fact sync failed: ${describeSyncError(error)}`);
+    }
+  };
+
   const updateSubjectPerformance = async (learnerId: string, subjectId: string, marksScored: number) => {
     try {
       setSavingPerformance(true);
@@ -1735,6 +2101,7 @@ export default function TeacherHomeScreen() {
         const entry = {
           label: String(currentGrade),
           value: Number.isFinite(marksScored) ? Number(marksScored) : 0,
+          achievedRecorded: true,
           target: Number.isFinite(Number(item?.targetMarks)) && Number(item.targetMarks) > 0 ? Number(item.targetMarks) : undefined,
         };
         const existingIndex = history.findIndex((entryItem: any) => String(entryItem?.label) === String(currentGrade));
@@ -1760,8 +2127,19 @@ export default function TeacherHomeScreen() {
         },
       });
 
+      let reportingSyncFailed = false;
+      try {
+        const updatedSubject = updatedSubjects.find((item: any) => String(item?.id || '') === String(subjectId));
+        await syncLearnerSubjectPerformance({ ...learnerRecord, supportProfile: { ...currentProfile, selectedSubjects: updatedSubjects } }, updatedSubject);
+      } catch (syncError) {
+        reportingSyncFailed = true;
+        console.warn('[NATIONAL_PERFORMANCE_FACT_SYNC_FAILED]', syncError);
+      }
+
       await loadSelectedLearnerSubjects(learnerId);
-      setNotice(`Performance updated for ${selectedPerformanceSubject?.name || 'the selected subject'}.`);
+      setNotice(reportingSyncFailed
+        ? 'Performance saved to the learner profile, but the national reporting record could not be synchronized. Save the mark again to retry.'
+        : `Performance updated for ${selectedPerformanceSubject?.name || 'the selected subject'}.`);
       // keep the teacher in the subject-update view; update the draft value for the subject
       setSubjectPerformanceDrafts((current) => ({ ...current, [subjectId]: String(marksScored) }));
       setPerformanceMarksInput('');
@@ -1880,8 +2258,8 @@ export default function TeacherHomeScreen() {
         return career.id === targetCareerId || career.courseName === currentProfile?.targetCareer;
       });
       const requirements = selectedCareer?.clusterRequirements || currentProfile?.clusterRequirements;
-      if (!hasCompleteCourseSubjectRequirements(requirements)) {
-        Alert.alert('Course requirements missing', 'This learner needs a selected tertiary course with complete subject groups and CBE minimum points before a cluster score can be calculated.');
+      if (!hasCompleteCourseScoringData(requirements)) {
+        Alert.alert('Course scoring data missing', 'This course needs complete cluster subject minima, the tertiary seven-best minimum, and valid saved national CBE mark ranges before a cluster score can be calculated.');
         return;
       }
       const nextClusterPoints = calculateLearnerClusterPoints(learner, requirements);
@@ -1948,8 +2326,8 @@ export default function TeacherHomeScreen() {
     return series;
   };
 
-  const promptLearnerAction = (learner: LearnerRecord, action: 'view' | 'update' | 'addSubject') => {
-    if ((action as any) === 'promote') {
+  const promptLearnerAction = (learner: LearnerRecord, action: 'view' | 'update' | 'addSubject' | 'promote' | 'updateCareerTarget') => {
+    if (action === 'promote') {
       const currentGrade = Number(String(learner.gradeLevel || '').replace(/\D/g, '')) || 7;
       setPromotionLearner(learner);
       setPromotionGradeInput(String(Math.min(12, currentGrade + 1)));
@@ -1960,7 +2338,7 @@ export default function TeacherHomeScreen() {
       return;
     }
 
-    if ((action as any) === 'updateCareerTarget') {
+    if (action === 'updateCareerTarget') {
       const gradeNumber = Number(String(learner.gradeLevel || '').replace(/\D/g, '')) || 0;
       if (gradeNumber < 7 || gradeNumber > 9) {
         Alert.alert(
@@ -2115,9 +2493,9 @@ export default function TeacherHomeScreen() {
       return;
     }
 
-    if (!hasCompleteCourseSubjectRequirements(selectedCareer.clusterRequirements)) {
-      setNotice('This course cannot be assigned because its CBE subject groups or minimum points are missing or invalid.');
-      Alert.alert('Course requirements incomplete', 'Choose a tertiary course with at least one required subject group and a CBE minimum (1–8) for every subject.');
+    if (!hasCompleteCourseScoringData(selectedCareer.clusterRequirements)) {
+      setNotice('This course cannot be assigned because required CBE scoring data is missing.');
+      Alert.alert('Course scoring data missing', 'This course needs complete subject groups, a tertiary-set seven-best minimum, and all eight saved national CBE score ranges before it can be assigned. Ask the National Officer and tertiary officer to complete the missing data.');
       return;
     }
 
@@ -2138,6 +2516,12 @@ export default function TeacherHomeScreen() {
       setNotice('');
 
       const safeAssessment = assessmentNumber.trim();
+      if (await assessmentNumberExists(safeAssessment)) {
+        const message = `Assessment number "${safeAssessment}" is already assigned to another learner. Each learner must have a unique assessment number.`;
+        setNotice(message);
+        Alert.alert('Duplicate assessment number', message);
+        return;
+      }
       const dedupedEmail = `${safeAssessment.toLowerCase().replace(/\s+/g, '')}.${selectedClassCode.toLowerCase()}@cartra.local`;
 
       const userResult = await client.graphql({
@@ -2285,6 +2669,15 @@ export default function TeacherHomeScreen() {
     return null;
   };
 
+  const getPromotionGradeTransition = (learner: LearnerRecord, gradeInput: string) => {
+    const currentGrade = Number(String(learner.gradeLevel || '').replace(/\D/g, '')) || 7;
+    const enteredNextGrade = Number(String(gradeInput || '').trim());
+    const nextGrade = Number.isFinite(enteredNextGrade) && enteredNextGrade >= 7 && enteredNextGrade <= 12
+      ? enteredNextGrade
+      : Math.min(12, currentGrade + 1);
+    return { currentGrade, nextGrade };
+  };
+
   const handlePromoteLearner = async (learner: LearnerRecord) => {
     if (!teacherContext || !learner.id) {
       setNotice('Teacher context or learner missing.');
@@ -2295,11 +2688,7 @@ export default function TeacherHomeScreen() {
       setPromotingLearner(true);
       setNotice('Promoting learner...');
 
-      const enteredNextGrade = Number(String(promotionGradeInput || '').trim());
-      const currentGrade = Number(String(learner.gradeLevel || '').replace(/\D/g, '')) || 7;
-      const nextGrade = Number.isFinite(enteredNextGrade) && enteredNextGrade >= 7 && enteredNextGrade <= 12
-        ? enteredNextGrade
-        : Math.min(12, currentGrade + 1);
+      const { currentGrade, nextGrade } = getPromotionGradeTransition(learner, promotionGradeInput);
 
       const learnerRecord = await findLearnerProfileRecord(learner);
       if (!learnerRecord?.id) throw new Error('Learner profile not found');
@@ -2355,10 +2744,23 @@ export default function TeacherHomeScreen() {
         const history = Array.isArray(merged.history) ? merged.history.slice() : [];
         const currentGradeValue = Number(String(learnerRecord.gradeLevel || '').replace(/\D/g, '')) || currentGrade;
 
-        if (subject && Number.isFinite(Number(subject?.marksScored)) && Number(subject.marksScored) >= 0) {
+        const hasGradeAttempt = history.some((entry: any) =>
+          String(entry?.label) === String(currentGradeValue) && entry?.achievedRecorded === true,
+        );
+        const recordedMark = subject?.marksScored;
+        const numericMark = Number(recordedMark);
+        if (
+          recordedMark !== null &&
+          recordedMark !== undefined &&
+          recordedMark !== '' &&
+          Number.isFinite(numericMark) &&
+          numericMark >= 0 &&
+          (numericMark > 0 || hasGradeAttempt)
+        ) {
           const entry = {
             label: String(currentGradeValue),
-            value: Number(subject.marksScored),
+            value: numericMark,
+            achievedRecorded: true,
             target: Number.isFinite(Number(subject?.targetMarks)) && Number(subject.targetMarks) > 0 ? Number(subject.targetMarks) : undefined,
           };
           const index = history.findIndex((existingEntry: any) => String(existingEntry?.label) === String(currentGradeValue));
@@ -2391,7 +2793,20 @@ export default function TeacherHomeScreen() {
       };
 
       await client.graphql({ query: createLearnerEnrollment, variables: { input: { learnerId: learnerRecord.id, schoolCode: learnerRecord.schoolCode, classCode: String(nextGrade), academicYear: ACADEMIC_YEAR, termOrCycle: 'Term 1', enrollmentStatus: 'active' } } });
-      await client.graphql({ query: updateLearnerProfile, variables: { input: { id: learnerRecord.id, gradeLevel: String(nextGrade), classCode: String(nextGrade), supportProfile: JSON.stringify(nextSupportProfile) } } });
+      const profileUpdateResult = await client.graphql({
+        query: updateLearnerProfile,
+        variables: { input: { id: learnerRecord.id, gradeLevel: String(nextGrade), classCode: String(nextGrade), supportProfile: JSON.stringify(nextSupportProfile) } },
+      }) as { data?: { updateLearnerProfile?: { gradeLevel?: string | null; classCode?: string | null } } };
+      if ([9, 10].includes(currentGrade) || [9, 10].includes(nextGrade)) {
+        console.log('[TEACHER_GRADE_BOUNDARY] promotion profile update', {
+          learnerId: learnerRecord.id,
+          rosterGradeBeforePromotion: learner.gradeLevel || null,
+          profileGradeBeforePromotion: learnerRecord.gradeLevel || null,
+          requestedNextGrade: nextGrade,
+          persistedGrade: profileUpdateResult.data?.updateLearnerProfile?.gradeLevel || null,
+          persistedClassCode: profileUpdateResult.data?.updateLearnerProfile?.classCode || null,
+        });
+      }
 
       setPromotionModalVisible(false);
       setPromotionLearner(null);
@@ -2567,7 +2982,12 @@ export default function TeacherHomeScreen() {
           <View style={styles.dialogCard}>
             <Text style={styles.dialogTitle}>Promote learner</Text>
             <Text style={styles.dialogText}>
-              {promotionLearner?.fullName || 'This learner'} will keep the same learner identity, but their class and support setup can be reset for the next grade.
+              {promotionLearner
+                ? (() => {
+                  const { currentGrade, nextGrade } = getPromotionGradeTransition(promotionLearner, promotionGradeInput);
+                  return `Promote from Grade ${currentGrade} to Grade ${nextGrade}.`;
+                })()
+                : 'Select a learner to promote.'}
             </Text>
 
             <Text style={styles.fieldLabel}>Next class / grade</Text>
@@ -2602,33 +3022,9 @@ export default function TeacherHomeScreen() {
               >
                 <View style={styles.buttonContentRow}>
                   {promotingLearner ? <ActivityIndicator size="small" color="#ffffff" /> : null}
-                  <Text style={styles.primaryButtonText}>{promotingLearner ? 'Promoting...' : 'Promote to next class'}</Text>
+                  <Text style={styles.primaryButtonText}>{promotingLearner ? 'Promoting...' : 'Okay'}</Text>
                 </View>
               </TouchableOpacity>
-            </View>
-
-            <View style={[styles.dialogActions, { marginTop: 12, justifyContent: 'space-between' }]}> 
-              <TouchableOpacity
-                style={[styles.secondaryButton, reassigningSubjects && styles.primaryButtonDisabled]}
-                onPress={() => {
-                  if (!promotionLearner || reassigningSubjects) return;
-                  setReassigningSubjects(true);
-                  setPromotionModalVisible(false);
-                  void openSubjectCategoryModal({
-                    ...promotionLearner,
-                    gradeLevel: promotionGradeInput || promotionLearner.gradeLevel,
-                  });
-                  Alert.alert('Reassign subjects', `Open the subject list for ${promotionLearner.fullName} and assign the next class subjects.`);
-                  setTimeout(() => setReassigningSubjects(false), 250);
-                }}
-                disabled={reassigningSubjects}
-              >
-                <View style={styles.buttonContentRow}>
-                  {reassigningSubjects ? <ActivityIndicator size="small" color="#111827" /> : null}
-                  <Text style={styles.secondaryButtonText}>{reassigningSubjects ? 'Reassigning...' : 'Reassign subjects'}</Text>
-                </View>
-              </TouchableOpacity>
-
             </View>
 
           </View>
@@ -2700,8 +3096,8 @@ export default function TeacherHomeScreen() {
                     return;
                   }
 
-                  if (!hasCompleteCourseSubjectRequirements(selectedCareer.clusterRequirements)) {
-                    Alert.alert('Course requirements incomplete', 'Choose a tertiary course with at least one required subject group and a CBE minimum (1–8) for every subject.');
+                  if (!hasCompleteCourseScoringData(selectedCareer.clusterRequirements)) {
+                    Alert.alert('Course scoring data missing', 'This course needs complete subject groups, a tertiary-set seven-best minimum, and all eight saved national CBE score ranges before it can be assigned. Ask the National Officer and tertiary officer to complete the missing data.');
                     return;
                   }
 
@@ -2789,7 +3185,7 @@ export default function TeacherHomeScreen() {
               {careerOptionsLoading ? (
                 <View style={styles.centeredRow}><ActivityIndicator size="small" color="#1d4ed8" /><Text style={styles.optionHint}>Loading programmes...</Text></View>
               ) : filteredCareerOptions.length === 0 ? (
-                <Text style={styles.optionHint}>No assignable courses match these filters. A course needs configured subject groups and a CBE minimum (1–8) for every subject.</Text>
+                <Text style={styles.optionHint}>No assignable courses match these filters. A course needs complete cluster subject data, a tertiary-set seven-best minimum, and all eight saved national CBE ranges. Ask the National Officer or tertiary officer to complete the missing setup.</Text>
               ) : (
                 filteredCareerOptions.map((career) => (
                   <TouchableOpacity
@@ -2906,33 +3302,24 @@ export default function TeacherHomeScreen() {
               <View style={styles.learnerLineRow}>
                 <Text style={[styles.metaText, styles.learnerMetaText]}>Grade {learner.gradeLevel || 'Not set'}: Status: {learner.status || 'active'}</Text>
                 <View style={styles.learnerActions}>
-                  {(() => {
-                    const assignmentGrade = selectedLearnerForSubjects?.gradeLevel || learner.gradeLevel;
-                    const gradeNumber = Number(String(assignmentGrade || '').replace(/\D/g, '')) || 0;
-                    if (gradeNumber === 7) {
-                      return (
-                        <TouchableOpacity
-                          accessibilityLabel={`Add subject to ${learner.fullName}`}
-                          style={styles.iconButton}
-                          onPress={() => promptLearnerAction(learner, 'addSubject')}
-                        >
-                          <Text style={styles.iconText}>＋</Text>
-                        </TouchableOpacity>
-                      );
-                    }
-                    return null;
-                  })()}
+                <TouchableOpacity
+                  accessibilityLabel={`Add subject to ${learner.fullName}`}
+                  style={styles.iconButton}
+                  onPress={() => promptLearnerAction(learner, 'addSubject')}
+                >
+                  <Text style={styles.iconText}>＋</Text>
+                </TouchableOpacity>
                   <TouchableOpacity
                     accessibilityLabel={`Update career target for ${learner.fullName}`}
                     style={styles.iconButton}
-                    onPress={() => promptLearnerAction(learner, 'updateCareerTarget' as any)}
+                    onPress={() => promptLearnerAction(learner, 'updateCareerTarget')}
                   >
                     <Text style={styles.iconText}>✦</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     accessibilityLabel={`Promote ${learner.fullName}`}
                     style={styles.iconButton}
-                    onPress={() => promptLearnerAction(learner, 'promote' as any)}
+                    onPress={() => promptLearnerAction(learner, 'promote')}
                   >
                     <Text style={styles.iconText}>⬆</Text>
                   </TouchableOpacity>
@@ -3504,7 +3891,16 @@ export default function TeacherHomeScreen() {
                             subject={subject}
                             requirementType={requiredItem ? (requiredItem.operator === 'OR' ? 'alternative' : 'mandatory') : undefined}
                             minimumPoints={requiredItem?.minimumPoints}
-                            onRemove={!requiredItem ? () => void removeSubjectFromLearner(learner.id, subject.id) : undefined}
+                            onRemove={() => Alert.alert(
+                              'Remove subject?',
+                              requiredItem
+                                ? `Remove ${subject.name} from ${selectedLearnerForSubjects?.fullName || 'this learner'}? It will no longer be assigned to this learner, but it remains a requirement of the selected course.`
+                                : `Remove ${subject.name} from ${selectedLearnerForSubjects?.fullName || 'this learner'}?`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Remove', style: 'destructive', onPress: () => void removeSubjectFromLearner(learner.id, subject.id) },
+                              ],
+                            )}
                             removeLabel={`Remove ${subject.name} from ${selectedLearnerForSubjects?.fullName || 'learner'}`}
                           />
                         );
@@ -3512,7 +3908,9 @@ export default function TeacherHomeScreen() {
                     )}
                   </View>
 
-                  {Number(String(selectedLearnerForSubjects?.gradeLevel || learner.gradeLevel || '').replace(/\D/g, '')) >= 10 &&
+                  {subjectAssignmentBlockReason ? (
+                    <Text style={styles.empty}>{subjectAssignmentBlockReason}</Text>
+                  ) : Number(String(selectedLearnerForSubjects?.gradeLevel || learner.gradeLevel || '').replace(/\D/g, '')) >= 10 &&
                     getSeniorCourseTargetState(learner.id).requirements.length > 0 &&
                     !getSeniorCourseTargetState(learner.id).targetsSaved ? (
                     <Text style={styles.empty}>Save target marks for every course-required subject to unlock additional subjects.</Text>

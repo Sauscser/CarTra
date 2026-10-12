@@ -28,6 +28,11 @@ export type AmplifyDependentResourcesAttributes = {
       "tertiaryOfficerGroupRole": "string"
     }
   },
+  "custom": {
+    "nationalcberollupstream": {
+      "NationalCbeRollupProcessorArn": "string"
+    }
+  },
   "function": {
     "cartraassessmentprocessor": {
       "Arn": "string",

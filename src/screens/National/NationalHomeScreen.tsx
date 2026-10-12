@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { generateClient } from 'aws-amplify/api';
 import {
-  createCompetency,
   createOrgHierarchy,
   createPathway,
   createRegionalOfficerProfile,
@@ -11,7 +10,6 @@ import {
   createUser,
 } from '../../graphql/mutations';
 import {
-  listCompetencies,
   listCoreSubjects,
   listJuniorLearningAreas,
   listJuniorSubjects,
@@ -26,6 +24,7 @@ import useScopePath from '../../hooks/useScopePath';
 import SectionCard from '../../components/shared/SectionCard';
 import PrimaryTextInput from '../../components/forms/PrimaryTextInput';
 import OrgEntityList from '../../components/lists/OrgEntityList';
+import { DEFAULT_CBE_ACHIEVEMENT_RANGES } from '../../utils/cluster';
 
 export default function NationalHomeScreen() {
   return <NationalRegionsContent />;
@@ -33,7 +32,7 @@ export default function NationalHomeScreen() {
 
 export function NationalCatalogContent() {
   const client = useMemo(() => generateClient(), []);
-  const [activeSection, setActiveSection] = useState<'seniorSecondary' | 'juniorSecondary' | 'sneVocational' | 'competency' | 'coreValue' | null>('seniorSecondary');
+  const [activeSection, setActiveSection] = useState<'seniorSecondary' | 'juniorSecondary' | 'sneVocational' | null>('seniorSecondary');
   const [seniorSubSection, setSeniorSubSection] = useState<'pathway' | 'track' | 'coreSubjects' | 'supportSubjects' | 'electives' | 'electiveTrack' | 'electiveSubject' | 'seniorViewSubjects' | null>('pathway');
   const [juniorSubSection, setJuniorSubSection] = useState<'addLearningArea' | 'addSubject' | 'juniorViewSubjects' | null>('addLearningArea');
   const [sneSubSection, setSNESubSection] = useState<'addLearningArea' | 'sneViewLearningAreas' | null>('addLearningArea');
@@ -69,13 +68,6 @@ export function NationalCatalogContent() {
   const [pathwayName, setPathwayName] = useState('');
   const [selectedPathwayId, setSelectedPathwayId] = useState('');
   const [pathwayDescription, setPathwayDescription] = useState('');
-  const [competencyCode, setCompetencyCode] = useState('');
-  const [competencyName, setCompetencyName] = useState('');
-  const [competencyDomain, setCompetencyDomain] = useState('');
-  const [competencyDescription, setCompetencyDescription] = useState('');
-  const [coreValueCode, setCoreValueCode] = useState('');
-  const [coreValueName, setCoreValueName] = useState('');
-  const [coreValueDescription, setCoreValueDescription] = useState('');
   const [subjects, setSubjects] = useState<Array<{ id: string; code: string; name: string; category?: string | null }>>([]);
   const [coreSubjects, setCoreSubjects] = useState<Array<{ id: string; code: string; name: string; category?: string | null }>>([]);
   const [supportSubjects, setSupportSubjects] = useState<Array<{ id: string; code: string; name: string; category?: string | null }>>([]);
@@ -83,7 +75,6 @@ export function NationalCatalogContent() {
   const [juniorSubjects, setJuniorSubjects] = useState<Array<{ id: string; code: string; name: string; learningAreaCode?: string | null; description?: string | null }>>([]);
   const [tracks, setTracks] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [pathways, setPathways] = useState<Array<{ id: string; code: string; name: string; trackId?: string | null }>>([]);
-  const [competencies, setCompetencies] = useState<Array<{ id: string; code: string; name: string; domain?: string | null }>>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -103,9 +94,29 @@ export function NationalCatalogContent() {
     }
   }, [tracks, selectedTrackId]);
 
+  const allSubjectCatalog = [...subjects, ...coreSubjects, ...supportSubjects, ...juniorSubjects];
+
+  const validateUniqueSubjectRecord = (code: string, name: string) => {
+    const normalizedCode = code.trim().toUpperCase();
+    const normalizedName = name.trim();
+    const duplicates = allSubjectCatalog.filter((subject) => {
+      const sameCode = Boolean(subject.code && subject.code.trim().toUpperCase() === normalizedCode && normalizedCode);
+      const sameName = Boolean(subject.name && subject.name.trim().toLowerCase() === normalizedName.trim().toLowerCase() && normalizedName);
+      return sameCode || sameName;
+    });
+
+    if (duplicates.length > 0) {
+      if (duplicates.some((subject) => subject.code && subject.code.trim().toUpperCase() === normalizedCode && normalizedCode)) {
+        return 'A subject with this code already exists in the national catalog. Use a unique subject code.';
+      }
+      return 'A subject with this name already exists in the national catalog. Use a unique subject name.';
+    }
+    return null;
+  };
+
   const loadCatalog = async () => {
     try {
-      const [subjectResult, coreSubjectResult, supportSubjectResult, juniorAreaResult, juniorSubjectResult, trackResult, pathwayResult, competencyResult] = await Promise.all([
+      const [subjectResult, coreSubjectResult, supportSubjectResult, juniorAreaResult, juniorSubjectResult, trackResult, pathwayResult] = await Promise.all([
         client.graphql({ query: listSubjects, variables: { limit: 100 } }),
         client.graphql({ query: listCoreSubjects, variables: { limit: 100 } }),
         client.graphql({ query: listSupportSubjects, variables: { limit: 100 } }),
@@ -113,7 +124,6 @@ export function NationalCatalogContent() {
         client.graphql({ query: listJuniorSubjects, variables: { limit: 100 } }),
         client.graphql({ query: listTracks, variables: { limit: 100 } }),
         client.graphql({ query: listPathways, variables: { limit: 100 } }),
-        client.graphql({ query: listCompetencies, variables: { limit: 100 } }),
       ]);
 
       const subjectPayload = subjectResult as { data?: { listSubjects?: { items?: Array<any> } } };
@@ -123,7 +133,6 @@ export function NationalCatalogContent() {
       const juniorSubjectPayload = juniorSubjectResult as { data?: { listJuniorSubjects?: { items?: Array<any> } } };
       const trackPayload = trackResult as { data?: { listTracks?: { items?: Array<any> } } };
       const pathwayPayload = pathwayResult as { data?: { listPathways?: { items?: Array<any> } } };
-      const competencyPayload = competencyResult as { data?: { listCompetencies?: { items?: Array<any> } } };
 
       const mappedSubjects = (subjectPayload.data?.listSubjects?.items || []).filter((item: any) => item?.id && item?.code && item?.name).map((item: any) => ({ id: item.id, code: item.code, name: item.name, category: item.category }));
       const mappedCoreSubjects = (coreSubjectPayload.data?.listCoreSubjects?.items || []).filter((item: any) => item?.id && item?.code && item?.name).map((item: any) => ({ id: item.id, code: item.code, name: item.name, category: item.category || 'Core' }));
@@ -138,7 +147,6 @@ export function NationalCatalogContent() {
       setJuniorSubjects(mappedJuniorSubjects);
       setTracks((trackPayload.data?.listTracks?.items || []).filter((item: any) => item?.id && item?.code && item?.name).map((item: any) => ({ id: item.id, code: item.code, name: item.name })));
       setPathways((pathwayPayload.data?.listPathways?.items || []).filter((item: any) => item?.id && item?.code && item?.name).map((item: any) => ({ id: item.id, code: item.code, name: item.name, trackId: item.trackId })));
-      setCompetencies((competencyPayload.data?.listCompetencies?.items || []).filter((item: any) => item?.id && item?.code && item?.name).map((item: any) => ({ id: item.id, code: item.code, name: item.name, domain: item.domain })));
     } catch {
       setNotice('Could not load the master catalog right now.');
     }
@@ -147,6 +155,12 @@ export function NationalCatalogContent() {
   const handleCreateSubject = async () => {
     if (!subjectCode.trim() || !subjectName.trim() || !selectedPathwayId.trim() || !selectedTrackId.trim()) {
       setNotice('Please select a pathway and a track before creating the subject.');
+      return;
+    }
+
+    const duplicateNotice = validateUniqueSubjectRecord(subjectCode, subjectName);
+    if (duplicateNotice) {
+      setNotice(duplicateNotice);
       return;
     }
 
@@ -164,6 +178,7 @@ export function NationalCatalogContent() {
             category: subjectGroup,
             description: subjectDescription.trim() || null,
             status: 'active',
+            cbeAchievementRanges: JSON.stringify(DEFAULT_CBE_ACHIEVEMENT_RANGES),
           },
         },
       });
@@ -189,6 +204,12 @@ export function NationalCatalogContent() {
   const handleCreateCoreSubject = async () => {
     if (!coreSubjectCode.trim() || !coreSubjectName.trim()) {
       setNotice('Please fill the core subject code and name.');
+      return;
+    }
+
+    const duplicateNotice = validateUniqueSubjectRecord(coreSubjectCode, coreSubjectName);
+    if (duplicateNotice) {
+      setNotice(duplicateNotice);
       return;
     }
 
@@ -223,6 +244,12 @@ export function NationalCatalogContent() {
   const handleCreateSupportSubject = async () => {
     if (!supportSubjectCode.trim() || !supportSubjectName.trim()) {
       setNotice('Please fill the support subject code and name.');
+      return;
+    }
+
+    const duplicateNotice = validateUniqueSubjectRecord(supportSubjectCode, supportSubjectName);
+    if (duplicateNotice) {
+      setNotice(duplicateNotice);
       return;
     }
 
@@ -293,6 +320,12 @@ export function NationalCatalogContent() {
       return;
     }
 
+    const duplicateNotice = validateUniqueSubjectRecord(juniorSubjectCode, juniorSubjectName);
+    if (duplicateNotice) {
+      setNotice(duplicateNotice);
+      return;
+    }
+
     try {
       setIsSaving(true);
       setNotice('');
@@ -358,6 +391,12 @@ export function NationalCatalogContent() {
   const handleCreateSNESubject = async () => {
     if (!sneSubjectCode.trim() || !sneSubjectName.trim() || !sneSubjectLearningAreaCode.trim()) {
       setNotice('Please fill the SNE subject code, name, and learning area code.');
+      return;
+    }
+
+    const duplicateNotice = validateUniqueSubjectRecord(sneSubjectCode, sneSubjectName);
+    if (duplicateNotice) {
+      setNotice(duplicateNotice);
       return;
     }
 
@@ -480,75 +519,6 @@ export function NationalCatalogContent() {
     }
   };
 
-  const handleCreateCompetency = async () => {
-    if (!competencyCode.trim() || !competencyName.trim()) {
-      setNotice('Please fill the competency code and competency name.');
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      setNotice('');
-      await client.graphql({
-        query: createCompetency,
-        variables: {
-          input: {
-            code: competencyCode.trim().toUpperCase(),
-            name: competencyName.trim(),
-            description: competencyDescription.trim() || null,
-            domain: competencyDomain.trim() || 'competency',
-            status: 'active',
-          },
-        },
-      });
-      setCompetencyCode('');
-      setCompetencyName('');
-      setCompetencyDomain('');
-      setCompetencyDescription('');
-      await loadCatalog();
-      setNotice('Competency created successfully.');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not create competency.';
-      setNotice(message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCreateCoreValue = async () => {
-    if (!coreValueCode.trim() || !coreValueName.trim()) {
-      setNotice('Please fill the core value code and core value name.');
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      setNotice('');
-      await client.graphql({
-        query: createCompetency,
-        variables: {
-          input: {
-            code: coreValueCode.trim().toUpperCase(),
-            name: coreValueName.trim(),
-            description: coreValueDescription.trim() || null,
-            domain: 'core-value',
-            status: 'active',
-          },
-        },
-      });
-      setCoreValueCode('');
-      setCoreValueName('');
-      setCoreValueDescription('');
-      await loadCatalog();
-      setNotice('Core value created successfully.');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not create core value.';
-      setNotice(message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   return (
     <ScrollView
       contentContainerStyle={[styles.catalogScroll, { paddingBottom: 120 }]}
@@ -561,8 +531,6 @@ export function NationalCatalogContent() {
             { key: 'seniorSecondary', label: 'Senior secondary' },
             { key: 'juniorSecondary', label: 'Junior secondary' },
             { key: 'sneVocational', label: 'Vocational SNE' },
-            { key: 'competency', label: 'Core competencies' },
-            { key: 'coreValue', label: 'Core values' },
           ].map((item) => (
             <TouchableOpacity
               key={item.key}
@@ -914,47 +882,6 @@ export function NationalCatalogContent() {
                 )}
               </View>
             ) : null}
-          </View>
-        ) : null}
-
-        {activeSection === 'competency' ? (
-          <View style={styles.catalogGroup}>
-            <Text style={styles.catalogTitle}>Core competencies</Text>
-            <PrimaryTextInput value={competencyCode} onChangeText={setCompetencyCode} placeholder="Competency code" autoCapitalize="characters" />
-            <PrimaryTextInput value={competencyName} onChangeText={setCompetencyName} placeholder="Competency name" />
-            <PrimaryTextInput value={competencyDomain} onChangeText={setCompetencyDomain} placeholder="Domain (optional)" />
-            <PrimaryTextInput value={competencyDescription} onChangeText={setCompetencyDescription} placeholder="Description (optional)" />
-            <TouchableOpacity style={styles.button} onPress={() => void handleCreateCompetency()} disabled={isSaving}>
-              <Text style={styles.buttonText}>{isSaving ? 'Saving...' : 'Create Competency'}</Text>
-            </TouchableOpacity>
-            {competencies.length > 0 ? (
-              <View style={styles.listBox}>
-                {competencies.map((item) => (
-                  <Text key={item.id} style={styles.listItem}>{item.code} • {item.name}</Text>
-                ))}
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        {activeSection === 'coreValue' ? (
-          <View style={styles.catalogGroup}>
-            <Text style={styles.catalogTitle}>Core values</Text>
-            <PrimaryTextInput value={coreValueCode} onChangeText={setCoreValueCode} placeholder="Core value code" autoCapitalize="characters" />
-            <PrimaryTextInput value={coreValueName} onChangeText={setCoreValueName} placeholder="Core value name" />
-            <PrimaryTextInput value={coreValueDescription} onChangeText={setCoreValueDescription} placeholder="Description (optional)" />
-            <TouchableOpacity style={styles.buttonSecondary} onPress={() => void handleCreateCoreValue()} disabled={isSaving}>
-              <Text style={styles.buttonText}>{isSaving ? 'Saving...' : 'Create Core Value'}</Text>
-            </TouchableOpacity>
-            {competencies.filter((item) => item.domain === 'core-value').length > 0 ? (
-              <View style={styles.listBox}>
-                {competencies.filter((item) => item.domain === 'core-value').map((item) => (
-                  <Text key={item.id} style={styles.listItem}>{item.code} • {item.name}</Text>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.noteText}>No core values created yet.</Text>
-            )}
           </View>
         ) : null}
 

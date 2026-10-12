@@ -11,13 +11,15 @@ import LearnerComments from '../../components/shared/LearnerComments';
 import SubjectPerformanceGraph from '../../components/shared/SubjectPerformanceGraph';
 import SubjectEvidenceActions from '../../components/shared/SubjectEvidenceActions';
 import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
+import { ScopedCbeAnalyticsSection } from '../../components/shared/ScopedCbeAnalytics';
+import LearnerFollowUpDashboard from '../../components/shared/LearnerFollowUpDashboard';
 import CourseSubjectPointsGraph from '../../components/shared/CourseSubjectPointsGraph';
 import LearnerClusterTrendGraph from '../../components/shared/LearnerClusterTrendGraph';
 import { SchoolTeacherSetupContent } from './SchoolTeacherSetupScreen';
 import calculateHistoricalClusterSeries, { calculateDeviationPercentage, hasCourseSubjectPointRequirements } from '../../utils/cluster';
 import { resolveLearnerCareerTarget } from '../../utils/learnerCareer';
 
-type SchoolScreenKey = 'home' | 'teachers' | 'performance';
+type SchoolScreenKey = 'home' | 'teachers' | 'performance' | 'analytics';
 
 type SchoolEntity = {
   id: string;
@@ -40,6 +42,11 @@ const SCHOOL_ACTIONS: Array<{ key: Exclude<SchoolScreenKey, 'home'>; title: stri
     key: 'performance',
     title: 'School Learner Performance',
     description: 'View cluster points, subject trends, guidance, and e-portfolio files for learners in this school.',
+  },
+  {
+    key: 'analytics',
+    title: 'School CBE Analytics',
+    description: 'Explore achievement bands and target deviations for learners in this school.',
   },
 ];
 
@@ -687,9 +694,17 @@ export default function SchoolHomeScreen() {
           </ScrollView>
         )}
       </SectionCard>
+    ) : activeScreen === 'analytics' ? (
+      <ScopedCbeAnalyticsSection
+        scopeType="school"
+        scopeCode={school?.code}
+        scopeName={school?.name}
+        nationCode={school?.nationCode}
+        showCumulativeDistribution
+      />
     ) : (
       <SectionCard title="School" subtitle="Choose a school task to begin.">
-        <Text style={styles.placeholder}>Use the action below to register teachers and maintain the school team.</Text>
+        <Text style={styles.placeholder}>Use the action above to register teachers and maintain the school team.</Text>
       </SectionCard>
     );
 
@@ -834,6 +849,13 @@ export default function SchoolHomeScreen() {
             ))}
           </View>
         </SectionCard>
+
+        {school ? <LearnerFollowUpDashboard
+          scopeType="school"
+          scopeCode={school.code}
+          scopeName={school.name}
+          nationCode={school.nationCode || ''}
+        /> : null}
 
         {activeContent}
       </ScrollView>

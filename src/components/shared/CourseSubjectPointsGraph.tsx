@@ -1,7 +1,8 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { calculateCourseClusterScoreDetails, evaluateCourseSubjectPointRequirements, getCbeAchievementLevel, getCourseRequirementGroups, getCourseSubjectPoints, hasCompleteCourseSubjectRequirements, parseCourseClusterRequirements } from '../../utils/cluster';
+import { CBE_ATTEMPTED_POINTS_MAX, calculateCourseClusterScoreDetails, evaluateCourseSubjectPointRequirements, getCbeAchievementLevel, getCourseRequirementGroups, getCourseSubjectPoints, hasCompleteCourseScoringData, hasCompleteCourseSubjectRequirements, parseCourseClusterRequirements } from '../../utils/cluster';
 import LearnerClusterTrendGraph from './LearnerClusterTrendGraph';
+import useSupportSubjectFilter, { filterSupportSubjectsFromProfile } from '../../hooks/useSupportSubjectFilter';
 
 const GRADES = [10, 11, 12] as const;
 
@@ -55,19 +56,27 @@ function getMarkForGrade(subject: any, grade: number, currentGrade: number) {
 }
 
 export default function CourseSubjectPointsGraph({ learner, profile, showTrendGraph = true }: Props) {
-  const supportProfile = parseSupportProfile(profile);
+  const supportFilter = useSupportSubjectFilter();
+  if (supportFilter.loading) {
+    return <Text style={styles.noRequirements}>Checking the support-subject catalog before calculating senior course scores...</Text>;
+  }
+  if (supportFilter.error) {
+    return <Text style={styles.noRequirements}>Senior course scores are hidden because support subjects could not be verified: {supportFilter.error}</Text>;
+  }
+  const filteredProfile = filterSupportSubjectsFromProfile(profile, supportFilter.ids);
+  const supportProfile = parseSupportProfile(filteredProfile);
   const requirements = parseCourseClusterRequirements(
-    profile?.clusterRequirements || supportProfile?.clusterRequirements || profile?.courseClusterRequirements,
+    filteredProfile?.clusterRequirements || supportProfile?.clusterRequirements || filteredProfile?.courseClusterRequirements,
   );
   const groups = getCourseRequirementGroups(requirements);
-  const subjects = getLearnerSubjects(profile, supportProfile);
+  const subjects = getLearnerSubjects(filteredProfile, supportProfile);
   const currentGrade = Number(String(learner?.gradeLevel || '').replace(/\D/g, '')) || 7;
   const requirementStatus = evaluateCourseSubjectPointRequirements(Array.from(subjects.values()), requirements);
 
   if (groups.length === 0) {
     return (
       <View style={styles.container}>
-        {showTrendGraph ? <LearnerClusterTrendGraph learner={learner} profile={profile} /> : null}
+        {showTrendGraph ? <LearnerClusterTrendGraph learner={learner} profile={profile} supportSubjectIds={supportFilter.ids} /> : null}
         <Text style={styles.noRequirements}>No course subject groups are configured. Senior course cluster scores are unavailable.</Text>
       </View>
     );
@@ -75,9 +84,18 @@ export default function CourseSubjectPointsGraph({ learner, profile, showTrendGr
   if (!hasCompleteCourseSubjectRequirements(requirements)) {
     return (
       <View style={styles.container}>
-        {showTrendGraph ? <LearnerClusterTrendGraph learner={learner} profile={profile} /> : null}
+        {showTrendGraph ? <LearnerClusterTrendGraph learner={learner} profile={profile} supportSubjectIds={supportFilter.ids} /> : null}
         <Text style={styles.heading}>Course subject requirements</Text>
         <Text style={styles.noRequirements}>The course subject groups or CBE minimum points are incomplete. Senior course cluster scores are unavailable.</Text>
+      </View>
+    );
+  }
+  if (!hasCompleteCourseScoringData(requirements)) {
+    return (
+      <View style={styles.container}>
+        {showTrendGraph ? <LearnerClusterTrendGraph learner={learner} profile={profile} supportSubjectIds={supportFilter.ids} /> : null}
+        <Text style={styles.heading}>Course subject requirements</Text>
+        <Text style={styles.noRequirements}>Course scores are unavailable because the saved tertiary seven-best minimum or national CBE mark ranges are missing or invalid. The National Officer and tertiary officer must complete this setup before scores can be calculated.</Text>
       </View>
     );
   }
@@ -92,7 +110,7 @@ export default function CourseSubjectPointsGraph({ learner, profile, showTrendGr
 
   return (
     <View style={styles.container}>
-      {showTrendGraph ? <LearnerClusterTrendGraph learner={learner} profile={profile} /> : null}
+      {showTrendGraph ? <LearnerClusterTrendGraph learner={learner} profile={profile} supportSubjectIds={supportFilter.ids} /> : null}
       <Text style={styles.heading}>Course subject requirements</Text>
       <View style={styles.statusRow}>
         <Text style={styles.statusLabel}>Current subject minima</Text>
@@ -107,12 +125,13 @@ export default function CourseSubjectPointsGraph({ learner, profile, showTrendGr
 
       <View style={styles.scorePanel}>
         <Text style={styles.scoreHeading}>Course score by grade</Text>
-        <Text style={styles.caption}>CBE level points: EE1=8, EE2=7, ME1=6, ME2=5, AE1=4, AE2=3, BE1=2, BE2=1. Score = (c/C) x (t/56) x C, with C = 8 x {groups.length} groups.</Text>
+        <Text style={styles.caption}>CBE score = (c/C) x (t/T) x C, where c is achieved cluster-subject points, C is 8 x {groups.length} groups, t is the learner's seven-best points, and T is {CBE_ATTEMPTED_POINTS_MAX}. Tertiary minimum for t: {requirements?.bestSubjectsMinimumPoints}/{CBE_ATTEMPTED_POINTS_MAX}.</Text>
+        <Text style={styles.caption}>Subject-specific national CBE ranges are used for cluster subjects; the saved national ranges are used for other attempted subjects.</Text>
         {grades.map(({ grade, details }) => (
           <View key={grade} style={styles.scoreGradeRow}>
             <Text style={styles.gradeLabel}>{grade}</Text>
             <Text style={styles.scoreValue}>{details ? `${details.points.toFixed(2)} / ${details.clusterMaximum}` : 'Not available'}</Text>
-            <Text style={styles.scoreBreakdown}>{details ? `c ${details.clusterPoints}/${details.clusterMaximum} · t ${details.sevenBestPoints}/56` : 'Cluster subject marks missing'}</Text>
+            <Text style={styles.scoreBreakdown}>{details ? `c ${details.clusterPoints}/${details.clusterMaximum} · t ${details.sevenBestPoints}/${CBE_ATTEMPTED_POINTS_MAX}` : 'Cluster subject marks missing'}</Text>
           </View>
         ))}
       </View>
@@ -141,7 +160,7 @@ export default function CourseSubjectPointsGraph({ learner, profile, showTrendGr
               const best = alternatives
                 .map(({ item, name }) => {
                   const subject = gradeSubjects.find((candidate) => String(candidate.id || candidate.code || candidate.name) === item.subjectId);
-                  return subject ? { item, name, points: getCourseSubjectPoints(subject.marksScored) } : null;
+                  return subject ? { item, name, points: getCourseSubjectPoints(subject.marksScored, item.achievementRanges || requirements?.achievementRanges) } : null;
                 })
                 .filter((candidate): candidate is { item: typeof group[number]; name: string; points: number } => candidate !== null)
                 .sort((left, right) => right.points - left.points)[0];

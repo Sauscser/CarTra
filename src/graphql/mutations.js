@@ -13,6 +13,7 @@ export const createSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -31,6 +32,7 @@ export const updateSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -49,6 +51,7 @@ export const deleteSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -67,6 +70,7 @@ export const createCoreSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -85,6 +89,7 @@ export const updateCoreSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -103,6 +108,7 @@ export const deleteCoreSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -121,6 +127,7 @@ export const createSupportSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -139,6 +146,7 @@ export const updateSupportSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -157,6 +165,7 @@ export const deleteSupportSubject = /* GraphQL */ `
       category
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -226,6 +235,7 @@ export const createJuniorSubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -244,6 +254,7 @@ export const updateJuniorSubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -262,6 +273,7 @@ export const deleteJuniorSubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -331,6 +343,7 @@ export const createSNESubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -349,6 +362,7 @@ export const updateSNESubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -367,6 +381,7 @@ export const deleteSNESubject = /* GraphQL */ `
       learningAreaCode
       description
       status
+      cbeAchievementRanges
       createdAt
       updatedAt
       __typename
@@ -3064,6 +3079,72 @@ export const deleteTermDefinition = /* GraphQL */ `
     }
   }
 `;
+export const createAnnualSchoolEnrollmentPlan = /* GraphQL */ `
+  mutation CreateAnnualSchoolEnrollmentPlan(
+    $input: CreateAnnualSchoolEnrollmentPlanInput!
+    $condition: ModelAnnualSchoolEnrollmentPlanConditionInput
+  ) {
+    createAnnualSchoolEnrollmentPlan(input: $input, condition: $condition) {
+      id
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      academicYear
+      expectedLearnersByGrade
+      declaredByUserId
+      declaredAt
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const updateAnnualSchoolEnrollmentPlan = /* GraphQL */ `
+  mutation UpdateAnnualSchoolEnrollmentPlan(
+    $input: UpdateAnnualSchoolEnrollmentPlanInput!
+    $condition: ModelAnnualSchoolEnrollmentPlanConditionInput
+  ) {
+    updateAnnualSchoolEnrollmentPlan(input: $input, condition: $condition) {
+      id
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      academicYear
+      expectedLearnersByGrade
+      declaredByUserId
+      declaredAt
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const deleteAnnualSchoolEnrollmentPlan = /* GraphQL */ `
+  mutation DeleteAnnualSchoolEnrollmentPlan(
+    $input: DeleteAnnualSchoolEnrollmentPlanInput!
+    $condition: ModelAnnualSchoolEnrollmentPlanConditionInput
+  ) {
+    deleteAnnualSchoolEnrollmentPlan(input: $input, condition: $condition) {
+      id
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      academicYear
+      expectedLearnersByGrade
+      declaredByUserId
+      declaredAt
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
 export const createUser = /* GraphQL */ `
   mutation CreateUser(
     $input: CreateUserInput!
@@ -3816,6 +3897,162 @@ export const deleteLearnerProfile = /* GraphQL */ `
       createdByTeacherId
       createdAt
       updatedAt
+      __typename
+    }
+  }
+`;
+export const createLearnerSubjectPerformance = /* GraphQL */ `
+  mutation CreateLearnerSubjectPerformance(
+    $input: CreateLearnerSubjectPerformanceInput!
+    $condition: ModelLearnerSubjectPerformanceConditionInput
+  ) {
+    createLearnerSubjectPerformance(input: $input, condition: $condition) {
+      id
+      learnerId
+      subjectId
+      subjectName
+      gradeLevel
+      academicYear
+      termOrCycle
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      targetMark
+      achievedMark
+      tertiaryBenchmark
+      targetCareerId
+      courseRequirementsSnapshot
+      nationGradeKey
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const updateLearnerSubjectPerformance = /* GraphQL */ `
+  mutation UpdateLearnerSubjectPerformance(
+    $input: UpdateLearnerSubjectPerformanceInput!
+    $condition: ModelLearnerSubjectPerformanceConditionInput
+  ) {
+    updateLearnerSubjectPerformance(input: $input, condition: $condition) {
+      id
+      learnerId
+      subjectId
+      subjectName
+      gradeLevel
+      academicYear
+      termOrCycle
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      targetMark
+      achievedMark
+      tertiaryBenchmark
+      targetCareerId
+      courseRequirementsSnapshot
+      nationGradeKey
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const deleteLearnerSubjectPerformance = /* GraphQL */ `
+  mutation DeleteLearnerSubjectPerformance(
+    $input: DeleteLearnerSubjectPerformanceInput!
+    $condition: ModelLearnerSubjectPerformanceConditionInput
+  ) {
+    deleteLearnerSubjectPerformance(input: $input, condition: $condition) {
+      id
+      learnerId
+      subjectId
+      subjectName
+      gradeLevel
+      academicYear
+      termOrCycle
+      nationCode
+      regionCode
+      countyCode
+      subCountyCode
+      schoolCode
+      targetMark
+      achievedMark
+      tertiaryBenchmark
+      targetCareerId
+      courseRequirementsSnapshot
+      nationGradeKey
+      createdAt
+      updatedAt
+      __typename
+    }
+  }
+`;
+export const createNationalCbeRollup = /* GraphQL */ `
+  mutation CreateNationalCbeRollup(
+    $input: CreateNationalCbeRollupInput!
+    $condition: ModelNationalCbeRollupConditionInput
+  ) {
+    createNationalCbeRollup(input: $input, condition: $condition) {
+      id
+      nationGradeKey
+      academicYear
+      dimension
+      binKey
+      subjectId
+      subjectName
+      count
+      deviationSum
+      deviationSquares
+      updatedAt
+      createdAt
+      __typename
+    }
+  }
+`;
+export const updateNationalCbeRollup = /* GraphQL */ `
+  mutation UpdateNationalCbeRollup(
+    $input: UpdateNationalCbeRollupInput!
+    $condition: ModelNationalCbeRollupConditionInput
+  ) {
+    updateNationalCbeRollup(input: $input, condition: $condition) {
+      id
+      nationGradeKey
+      academicYear
+      dimension
+      binKey
+      subjectId
+      subjectName
+      count
+      deviationSum
+      deviationSquares
+      updatedAt
+      createdAt
+      __typename
+    }
+  }
+`;
+export const deleteNationalCbeRollup = /* GraphQL */ `
+  mutation DeleteNationalCbeRollup(
+    $input: DeleteNationalCbeRollupInput!
+    $condition: ModelNationalCbeRollupConditionInput
+  ) {
+    deleteNationalCbeRollup(input: $input, condition: $condition) {
+      id
+      nationGradeKey
+      academicYear
+      dimension
+      binKey
+      subjectId
+      subjectName
+      count
+      deviationSum
+      deviationSquares
+      updatedAt
+      createdAt
       __typename
     }
   }

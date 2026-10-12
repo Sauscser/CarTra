@@ -59,15 +59,17 @@ export function NationalOfficerSetupContent() {
       const result = await client.graphql({
         query: listOrgHierarchies,
         variables: {
-          filter: {
-            and: [{ entityType: { eq: 'nation' } }, { assignedOfficerEmail: { eq: currentEmail } }],
-          },
-          limit: 20,
+          filter: { entityType: { eq: 'nation' } },
+          limit: 100,
         },
       });
 
       const payloadResult = result as { data?: { listOrgHierarchies?: { items?: Array<any> } } };
-      const item = payloadResult.data?.listOrgHierarchies?.items?.[0];
+      const items = payloadResult.data?.listOrgHierarchies?.items || [];
+      const item = items.find((candidate) => {
+        const assignedOfficerEmail = String(candidate?.assignedOfficerEmail || '').trim().toLowerCase();
+        return assignedOfficerEmail === currentEmail;
+      }) || (items.length === 1 ? items[0] : undefined);
 
       if (item) {
         setNationCode(item.code || '');

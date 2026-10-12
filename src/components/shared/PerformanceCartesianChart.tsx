@@ -19,7 +19,7 @@ const SERIES = [
   { key: 'target', label: 'Target', color: '#93c5fd' },
   { key: 'value', label: 'Achieved', color: '#1d4ed8' },
   { key: 'learnerTarget', label: 'Learner target', color: '#0f766e' },
-  { key: 'tertiaryTarget', label: 'Tertiary minimum (ME2)', color: '#b45309' },
+  { key: 'tertiaryTarget', label: 'Tertiary minimum (course-specific)', color: '#b45309' },
 ] as const;
 
 export default function PerformanceCartesianChart({ series, axisGrades = [7, 8, 9, 10, 11, 12], nationalRequirement }: Props) {

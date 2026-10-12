@@ -13,6 +13,9 @@ import SubjectEvidenceActions from '../../components/shared/SubjectEvidenceActio
 import LearnerClusterPerformanceGraph from '../../components/shared/LearnerClusterPerformanceGraph';
 import CourseSubjectPointsGraph from '../../components/shared/CourseSubjectPointsGraph';
 import LearnerClusterTrendGraph from '../../components/shared/LearnerClusterTrendGraph';
+import CbeJurisdictionAnalytics from '../../components/shared/CbeJurisdictionAnalytics';
+import LearnerFollowUpDashboard from '../../components/shared/LearnerFollowUpDashboard';
+import JurisdictionTransferManager from '../../components/shared/JurisdictionTransferManager';
 import calculateHistoricalClusterSeries, { calculateDeviationPercentage, hasCourseSubjectPointRequirements } from '../../utils/cluster';
 import { resolveLearnerCareerTarget } from '../../utils/learnerCareer';
 import { SubCountySchoolSetupContent } from './SubCountySchoolSetupScreen';
@@ -786,6 +789,19 @@ function SubCountyHomeContent() {
           ) : null}
         </SectionCard>
 
+        {subCounty ? <CbeJurisdictionAnalytics
+          scopeType="subCounty"
+          scopeCode={subCounty.code}
+          scopeName={subCounty.name}
+          nationCode={subCounty.nationCode}
+        /> : null}
+        {subCounty?.nationCode ? <LearnerFollowUpDashboard
+          scopeType="subCounty"
+          scopeCode={subCounty.code}
+          scopeName={subCounty.name}
+          nationCode={subCounty.nationCode}
+        /> : null}
+
         <SectionCard title="Schools in this sub-county" subtitle="All schools linked to your assigned sub-county.">
           {!isLoading && schools.length === 0 ? (
             <Text style={styles.empty}>No schools are assigned to this sub-county yet.</Text>
@@ -888,6 +904,7 @@ function SubCountyHomeContent() {
             </View>
           )}
         </SectionCard>
+        {subCounty ? <JurisdictionTransferManager scope="subCounty" scopeCodes={{ nationCode: subCounty.nationCode || '', regionCode: subCounty.regionCode || '', countyCode: subCounty.countyCode || '', subCountyCode: subCounty.code }} /> : null}
       </ScrollView>
 
       {modalContent}
